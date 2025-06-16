@@ -13,6 +13,7 @@ from typing import Any
 import networkx as nx
 
 from graphrag.config.defaults import graphrag_config_defaults
+from graphrag.config.defaults import graphrag_config_defaults
 from graphrag.index.typing.error_handler import ErrorHandlerFn
 from graphrag.index.utils.string import clean_str
 from graphrag.language_model.protocol.base import ChatModel
@@ -54,6 +55,7 @@ class GraphExtractor:
     _summarization_prompt: str
     _max_gleanings: int
     _on_error: ErrorHandlerFn
+    _encoding_model: str | None
 
     def __init__(
         self,
@@ -67,6 +69,7 @@ class GraphExtractor:
         join_descriptions=True,
         max_gleanings: int | None = None,
         on_error: ErrorHandlerFn | None = None,
+        encoding_model: str | None = None,
     ):
         """Init method definition."""
         # TODO: streamline construction
@@ -86,6 +89,7 @@ class GraphExtractor:
             else graphrag_config_defaults.extract_graph.max_gleanings
         )
         self._on_error = on_error or (lambda _e, _s, _d: None)
+        self._encoding_model = encoding_model
 
     async def __call__(
         self, texts: list[str], prompt_variables: dict[str, Any] | None = None
@@ -149,7 +153,9 @@ class GraphExtractor:
                 self._input_text_key: text,
             }),
         )
-        results = response.output.content or ""
+        import logging
+        logging.debug(f"AIME response object: {response}")
+        results = response.text or ""
 
         # if gleanings are specified, enter a loop to extract more entities
         # there are two exit criteria: (a) we hit the configured max, (b) the model says there are no more entities
@@ -157,14 +163,20 @@ class GraphExtractor:
             for i in range(self._max_gleanings):
                 response = await self._model.achat(
                     CONTINUE_PROMPT,
-                    name=f"extract-continuation-{i}",
-                    history=response.history,
+                    name=f"extract-continuation-{i}"
                 )
-                results += response.output.content or ""
-
-                # if this is the final glean, don't bother updating the continuation flag
-                if i >= self._max_gleanings - 1:
+                import logging
+                logging.debug(f"AIME gleaning response object: {response}")
+                # Validate response
+                if hasattr(response, "text") and isinstance(response.text, str):
+                    results += response.text
+                else:
+                    logging.error(f"AIME response missing 'text' attribute or is not a string: {response}")
                     break
+
+                    # if this is the final glean, don't bother updating the continuation flag
+                    if i >= self._max_gleanings - 1:
+                        break
 
                 response = await self._model.achat(
                     LOOP_PROMPT,

@@ -75,9 +75,17 @@ async def derive_from_rows_asyncio_threads(
 
         async def execute_task(task: Coroutine) -> ItemType | None:
             async with semaphore:
-                # fire off the thread
-                thread = await task
-                return await thread
+                try:
+                    # Execute the task directly
+                    result = await task
+                    return result
+                except asyncio.CancelledError as ce:
+                    logger.error(f"Task cancelled: {ce}")
+                    raise
+                except Exception as e:
+                    logger.error(f"Error in thread execution: {e}")
+                    logger.error(f"Error details: {traceback.format_exc()}")
+                    raise
 
         return await asyncio.gather(*[execute_task(task) for task in tasks])
 
@@ -105,7 +113,15 @@ async def derive_from_rows_asyncio(
             row: tuple[Hashable, pd.Series],
         ) -> ItemType | None:
             async with semaphore:
-                return await execute(row)
+                try:
+                    return await execute(row)
+                except asyncio.CancelledError as ce:
+                    logger.error(f"Row execution cancelled: {ce}")
+                    raise
+                except Exception as e:
+                    logger.error(f"Error processing row: {e}")
+                    logger.error(f"Error details: {traceback.format_exc()}")
+                    raise
 
         tasks = [
             asyncio.create_task(execute_row_protected(row)) for row in input.iterrows()
