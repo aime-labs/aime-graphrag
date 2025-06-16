@@ -4,9 +4,12 @@
 """CLI implementation of the query subcommand."""
 
 import asyncio
+import json
 import sys
+from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
+from uuid import uuid4
 
 import graphrag.api as api
 from graphrag.callbacks.noop_query_callbacks import NoopQueryCallbacks
@@ -20,6 +23,44 @@ if TYPE_CHECKING:
     import pandas as pd
 
 logger = PrintProgressLogger("")
+
+
+def _log_query(
+    output_dir: Path,
+    query: str,
+    method: str,
+    response: Any,
+    context_data: Optional[Dict] = None,
+    metadata: Optional[Dict] = None,
+) -> str:
+    """
+    Log query details to a JSON file in the output directory.
+
+    Args:
+        output_dir: Base directory where the query_logs subdirectory will be created
+        query: The search query string
+        method: The search method used (e.g., 'local', 'global', 'drift', 'basic')
+        response: The response from the search
+        context_data: Additional context data from the search
+        metadata: Additional metadata to include in the log
+
+    Returns:
+        str: Path to the saved log file
+    """
+    # Import the log_query function from utils
+    from graphrag.utils.query_logger import log_query
+    
+    # Call the log_query function which will handle creating the query_logs subdirectory
+    log_file = log_query(
+        output_dir=output_dir,
+        query=query,
+        method=method,
+        response=response,
+        context_data=context_data,
+        metadata=metadata
+    )
+    
+    return log_file
 
 
 def run_global_search(
@@ -88,7 +129,8 @@ def run_global_search(
     final_community_reports: pd.DataFrame = dataframe_dict["community_reports"]
 
     if streaming:
-
+        output_dir = Path(data_dir) if data_dir else Path("output")
+        
         async def run_streaming_search():
             full_response = ""
             context_data = {}
@@ -115,6 +157,25 @@ def run_global_search(
                 print(stream_chunk, end="")  # noqa: T201
                 sys.stdout.flush()  # flush output buffer to display text immediately
             print()  # noqa: T201
+            
+            # Log the query and response after streaming is complete
+            _log_query(
+                output_dir=output_dir,
+                query=query,
+                method="global",
+                response=full_response,
+                context_data=context_data,
+                metadata={
+                    "community_level": community_level,
+                    "dynamic_community_selection": dynamic_community_selection,
+                    "response_type": response_type,
+                    "streaming": True,
+                    "config_file": str(config_filepath) if config_filepath else None,
+                    "data_dir": str(data_dir) if data_dir else None,
+                    "root_dir": str(root_dir) if root_dir else None,
+                }
+            )
+            
             return full_response, context_data
 
         return asyncio.run(run_streaming_search())
@@ -132,8 +193,26 @@ def run_global_search(
         )
     )
     logger.success(f"Global Search Response:\n{response}")
-    # NOTE: we return the response and context data here purely as a complete demonstration of the API.
-    # External users should use the API directly to get the response and context data.
+    
+    # Log the query and response
+    output_dir = Path(data_dir) if data_dir else Path("output")
+    _log_query(
+        output_dir=output_dir,
+        query=query,
+        method="global",
+        response=response,
+        context_data=context_data,
+        metadata={
+            "community_level": community_level,
+            "dynamic_community_selection": dynamic_community_selection,
+            "response_type": response_type,
+            "streaming": streaming,
+            "config_file": str(config_filepath) if config_filepath else None,
+            "data_dir": str(data_dir) if data_dir else None,
+            "root_dir": str(root_dir) if root_dir else None,
+        }
+    )
+    
     return response, context_data
 
 
@@ -218,7 +297,8 @@ def run_local_search(
     final_covariates: pd.DataFrame | None = dataframe_dict["covariates"]
 
     if streaming:
-
+        output_dir = Path(data_dir) if data_dir else Path("output")
+        
         async def run_streaming_search():
             full_response = ""
             context_data = {}
@@ -247,6 +327,24 @@ def run_local_search(
                 print(stream_chunk, end="")  # noqa: T201
                 sys.stdout.flush()  # flush output buffer to display text immediately
             print()  # noqa: T201
+            
+            # Log the query and response after streaming is complete
+            _log_query(
+                output_dir=output_dir,
+                query=query,
+                method="local",
+                response=full_response,
+                context_data=context_data,
+                metadata={
+                    "community_level": community_level,
+                    "response_type": response_type,
+                    "streaming": True,
+                    "config_file": str(config_filepath) if config_filepath else None,
+                    "data_dir": str(data_dir) if data_dir else None,
+                    "root_dir": str(root_dir) if root_dir else None,
+                }
+            )
+            
             return full_response, context_data
 
         return asyncio.run(run_streaming_search())
@@ -266,6 +364,23 @@ def run_local_search(
         )
     )
     logger.success(f"Local Search Response:\n{response}")
+    # Log the query and response
+    output_dir = Path(data_dir) if data_dir else Path("output")
+    _log_query(
+        output_dir=output_dir,
+        query=query,
+        method="local",
+        response=response,
+        context_data=context_data,
+        metadata={
+            "community_level": community_level,
+            "response_type": response_type,
+            "streaming": streaming,
+            "config_file": str(config_filepath) if config_filepath else None,
+            "data_dir": str(data_dir) if data_dir else None,
+            "root_dir": str(root_dir) if root_dir else None,
+        }
+    )
     # NOTE: we return the response and context data here purely as a complete demonstration of the API.
     # External users should use the API directly to get the response and context data.
     return response, context_data
@@ -342,7 +457,8 @@ def run_drift_search(
     final_entities: pd.DataFrame = dataframe_dict["entities"]
 
     if streaming:
-
+        output_dir = Path(data_dir) if data_dir else Path("output")
+        
         async def run_streaming_search():
             full_response = ""
             context_data = {}
@@ -370,6 +486,24 @@ def run_drift_search(
                 print(stream_chunk, end="")  # noqa: T201
                 sys.stdout.flush()  # flush output buffer to display text immediately
             print()  # noqa: T201
+            
+            # Log the query and response after streaming is complete
+            _log_query(
+                output_dir=output_dir,
+                query=query,
+                method="drift",
+                response=full_response,
+                context_data=context_data,
+                metadata={
+                    "community_level": community_level,
+                    "response_type": response_type,
+                    "streaming": True,
+                    "config_file": str(config_filepath) if config_filepath else None,
+                    "data_dir": str(data_dir) if data_dir else None,
+                    "root_dir": str(root_dir) if root_dir else None,
+                }
+            )
+            
             return full_response, context_data
 
         return asyncio.run(run_streaming_search())
@@ -389,8 +523,25 @@ def run_drift_search(
         )
     )
     logger.success(f"DRIFT Search Response:\n{response}")
-    # NOTE: we return the response and context data here purely as a complete demonstration of the API.
-    # External users should use the API directly to get the response and context data.
+    
+    # Log the query and response
+    output_dir = Path(data_dir) if data_dir else Path("output")
+    _log_query(
+        output_dir=output_dir,
+        query=query,
+        method="drift",
+        response=response,
+        context_data=context_data,
+        metadata={
+            "community_level": community_level,
+            "response_type": response_type,
+            "streaming": streaming,
+            "config_file": str(config_filepath) if config_filepath else None,
+            "data_dir": str(data_dir) if data_dir else None,
+            "root_dir": str(root_dir) if root_dir else None,
+        }
+    )
+    
     return response, context_data
 
 
@@ -445,7 +596,8 @@ def run_basic_search(
     final_text_units: pd.DataFrame = dataframe_dict["text_units"]
 
     if streaming:
-
+        output_dir = Path(data_dir) if data_dir else Path("output")
+        
         async def run_streaming_search():
             full_response = ""
             context_data = {}
@@ -461,11 +613,28 @@ def run_basic_search(
                 config=config,
                 text_units=final_text_units,
                 query=query,
+                callbacks=[callbacks],
             ):
                 full_response += stream_chunk
                 print(stream_chunk, end="")  # noqa: T201
                 sys.stdout.flush()  # flush output buffer to display text immediately
             print()  # noqa: T201
+            
+            # Log the query and response after streaming is complete
+            _log_query(
+                output_dir=output_dir,
+                query=query,
+                method="basic",
+                response=full_response,
+                context_data=context_data,
+                metadata={
+                    "streaming": True,
+                    "config_file": str(config_filepath) if config_filepath else None,
+                    "data_dir": str(data_dir) if data_dir else None,
+                    "root_dir": str(root_dir) if root_dir else None,
+                }
+            )
+            
             return full_response, context_data
 
         return asyncio.run(run_streaming_search())
@@ -478,8 +647,23 @@ def run_basic_search(
         )
     )
     logger.success(f"Basic Search Response:\n{response}")
-    # NOTE: we return the response and context data here purely as a complete demonstration of the API.
-    # External users should use the API directly to get the response and context data.
+    
+    # Log the query and response
+    output_dir = Path(data_dir) if data_dir else Path("output")
+    _log_query(
+        output_dir=output_dir,
+        query=query,
+        method="basic",
+        response=response,
+        context_data=context_data,
+        metadata={
+            "streaming": streaming,
+            "config_file": str(config_filepath) if config_filepath else None,
+            "data_dir": str(data_dir) if data_dir else None,
+            "root_dir": str(root_dir) if root_dir else None,
+        }
+    )
+    
     return response, context_data
 
 

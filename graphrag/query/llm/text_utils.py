@@ -65,9 +65,15 @@ def try_parse_json_object(input: str, verbose: bool = True) -> tuple[str, dict]:
     if result:
         return input, result
 
+    # Try to find JSON object in the text
     pattern = r"\{(.*)\}"
     match = re.search(pattern, input, re.DOTALL)
-    input = "{" + match.group(1) + "}" if match else input
+    if match:
+        input = "{" + match.group(1) + "}"
+    else:
+        if verbose:
+            log.warning("No JSON object found in input: %s", input)
+        return input, {}
 
     # Clean up json string.
     input = (
@@ -84,28 +90,32 @@ def try_parse_json_object(input: str, verbose: bool = True) -> tuple[str, dict]:
 
     # Remove JSON Markdown Frame
     if input.startswith("```json"):
-        input = input[len("```json") :]
+        input = input[len("```json"):]
     if input.endswith("```"):
-        input = input[: len(input) - len("```")]
+        input = input[:len(input) - len("```")]
+    if input.startswith("```"):
+        input = input[len("```"):]
+    if input.endswith("```"):
+        input = input[:len(input) - len("```")]
 
     try:
         result = json.loads(input)
     except json.JSONDecodeError:
+        if verbose:
+            log.info("Attempting to repair JSON: %s", input)
         # Fixup potentially malformed json string using json_repair.
-        input = str(repair_json(json_str=input, return_objects=False))
-
-        # Generate JSON-string output using best-attempt prompting & parsing techniques.
         try:
+            input = str(repair_json(json_str=input, return_objects=False))
             result = json.loads(input)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, Exception) as e:
             if verbose:
-                log.exception("error loading json, json=%s", input)
+                log.exception("Failed to repair JSON: %s, error: %s", input, str(e))
             return input, {}
-        else:
-            if not isinstance(result, dict):
-                if verbose:
-                    log.exception("not expected dict type. type=%s:", type(result))
-                return input, {}
-            return input, result
     else:
+        if not isinstance(result, dict):
+            if verbose:
+                log.warning("Parsed result is not a dictionary: %s", type(result))
+            return input, {}
         return input, result
+
+    return input, result

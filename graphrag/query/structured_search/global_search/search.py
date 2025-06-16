@@ -371,9 +371,7 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
             text_data = "\n\n".join(data)
 
             search_prompt = self.reduce_system_prompt.format(
-                report_data=text_data,
-                response_type=self.response_type,
-                max_length=self.reduce_max_length,
+                report_data=text_data, response_type=self.response_type
             )
             if self.allow_general_knowledge:
                 search_prompt += "\n" + self.general_knowledge_inclusion_prompt
