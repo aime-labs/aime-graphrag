@@ -13,7 +13,7 @@ from graphrag.data_model.named import Named
 class CommunityReport(Named):
     """Defines an LLM-generated summary report of a community."""
 
-    community_id: str
+    community_id: str | int
     """The ID of the community this report is associated with."""
 
     summary: str = ""
@@ -36,6 +36,11 @@ class CommunityReport(Named):
 
     period: str | None = None
     """The period of the report (optional)."""
+
+    def __post_init__(self):
+        """Convert community_id to string if it's an integer."""
+        if isinstance(self.community_id, int):
+            self.community_id = str(self.community_id)
 
     @classmethod
     def from_dict(

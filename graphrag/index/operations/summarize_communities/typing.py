@@ -29,7 +29,7 @@ class Finding(TypedDict):
 class CommunityReport(TypedDict):
     """Community report class definition."""
 
-    community: str | int
+    community: str  # Always stored as string
     title: str
     summary: str
     full_content: str

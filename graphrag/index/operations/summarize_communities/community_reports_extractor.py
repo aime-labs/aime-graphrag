@@ -121,7 +121,14 @@ class CommunityReportsExtractor:
                     # Now try to parse as JSON
                     try:
                         # If the response has a text attribute, use that, otherwise use the string representation
-                        response_text = raw_response.text if hasattr(raw_response, 'text') else str(raw_response)
+                        if hasattr(raw_response, 'text'):
+                            response_text = raw_response.text
+                        elif hasattr(raw_response, 'content'):
+                            response_text = raw_response.content
+                        else:
+                            response_text = str(raw_response)
+                        
+                        log.info(f"Response text (first 2000 chars):\n{response_text[:2000]}...")
                         
                         # Extract JSON from markdown code blocks if present
                         if '```' in response_text:
@@ -131,32 +138,106 @@ class CommunityReportsExtractor:
                                 json_content = response_text.split('```json')[1].split('```')[0].strip()
                             else:
                                 # If no ```json marker, just get content between first set of ```
-                                json_content = response_text.split('```')[1].strip()
+                                json_content = response_text.split('```')[1].split('```')[0].strip()
                             log.info(f"Extracted JSON content: {json_content[:500]}...")
                         else:
                             json_content = response_text
                         
                         # Try to parse the response as JSON
                         import json
-                        json_response = json.loads(json_content)
-                        log.info("Successfully parsed response as JSON")
+                        try:
+                            # First try to parse as is
+                            json_response = json.loads(json_content)
+                            log.info("Successfully parsed response as JSON")
+                        except json.JSONDecodeError as je:
+                            log.error(f"Failed to parse response as JSON: {str(je)}")
+                            log.error(f"Response content that failed to parse: {json_content[:2000]}")
+                            # Try to clean the JSON content
+                            try:
+                                # Remove any non-JSON text before the first {
+                                start_idx = json_content.find('{')
+                                if start_idx >= 0:
+                                    json_content = json_content[start_idx:]
+                                    # Find the last }
+                                    end_idx = json_content.rfind('}')
+                                    if end_idx >= 0:
+                                        json_content = json_content[:end_idx+1]
+                                        json_response = json.loads(json_content)
+                                        log.info("Successfully parsed cleaned JSON")
+                                    else:
+                                        raise ValueError("No closing brace found in JSON content")
+                                else:
+                                    raise ValueError("No opening brace found in JSON content")
+                            except Exception as e:
+                                log.error(f"Failed to clean and parse JSON: {str(e)}")
+                                # Try to extract partial JSON if possible
+                                try:
+                                    # Look for any valid JSON object in the text
+                                    import re
+                                    json_objects = re.findall(r'\{[^{}]*\}', json_content)
+                                    if json_objects:
+                                        # Try each potential JSON object
+                                        for obj in json_objects:
+                                            try:
+                                                json_response = json.loads(obj)
+                                                if all(k in json_response for k in ['title', 'summary', 'rating', 'rating_explanation', 'findings']):
+                                                    log.info("Successfully extracted partial JSON")
+                                                    break
+                                            except:
+                                                continue
+                                        else:
+                                            raise ValueError("No valid JSON object found")
+                                    else:
+                                        raise ValueError("No JSON object pattern found")
+                                except Exception as e2:
+                                    log.error(f"Failed to extract partial JSON: {str(e2)}")
+                                    raise ValueError(f"LLM response is not valid JSON: {str(je)}") from je
                         
                         # Ensure community ID is included in the response before validation
                         if isinstance(json_response, dict):
                             json_response['community'] = community_id
                             log.debug(f"Set community_id in JSON response: {json_response['community']}")
+                            
+                            # Ensure all required fields are present
+                            required_fields = ['title', 'summary', 'rating', 'rating_explanation', 'findings']
+                            missing_fields = [field for field in required_fields if field not in json_response]
+                            if missing_fields:
+                                log.warning(f"Missing required fields in JSON response: {missing_fields}")
+                                # Add default values for missing fields
+                                for field in missing_fields:
+                                    if field == 'findings':
+                                        json_response[field] = []
+                                    elif field == 'rating':
+                                        json_response[field] = 0.0
+                                    else:
+                                        json_response[field] = "No content available"
                         
                         # Convert to CommunityReportResponse model
-                        response = CommunityReportResponse.model_validate(json_response)
+                        output = CommunityReportResponse.model_validate(json_response)
+                        log.info("Successfully created CommunityReportResponse")
+                        return self._create_result(output)
                         
-                    except json.JSONDecodeError as je:
-                        log.error(f"Failed to parse response as JSON: {str(je)}")
-                        log.error(f"Response content that failed to parse: {response_text[:2000]}")
-                        raise ValueError(f"LLM response is not valid JSON: {str(je)}") from je
                     except Exception as e:
                         log.error(f"Error validating response against model: {str(e)}")
                         log.error(f"Response content that failed validation: {response_text[:2000]}")
-                        raise
+                        # Try to create a partial response from available fields
+                        try:
+                            if isinstance(json_response, dict):
+                                # Create a new response with available fields
+                                partial_response = {
+                                    'title': json_response.get('title', 'Generated Report'),
+                                    'summary': json_response.get('summary', 'No content available'),
+                                    'findings': json_response.get('findings', []),
+                                    'rating': json_response.get('rating', 0.0),
+                                    'rating_explanation': json_response.get('rating_explanation', 'No rating available'),
+                                    'community': community_id
+                                }
+                                output = CommunityReportResponse.model_validate(partial_response)
+                                log.info("Successfully created partial response from available fields")
+                                return self._create_result(output)
+                        except Exception as e2:
+                            log.error(f"Error creating partial response: {str(e2)}")
+                            raise
                         
                 except Exception as e:
                     log.error(f"Error in LLM communication: {str(e)}", exc_info=True)
@@ -173,6 +254,8 @@ class CommunityReportsExtractor:
                     log.error(f"Error response text: {e.response.text}")
                 raise
             
+            # If we got here, it means the first parsing attempt failed
+            log.warning("No valid response format found (missing both parsed_response and text)")
             # Initialize default output with community ID
             default_output_data = {
                 'title': "Generated Report",
@@ -180,140 +263,10 @@ class CommunityReportsExtractor:
                 'findings': [],
                 'rating': 0.0,
                 'rating_explanation': "No rating available",
-                'community': self._community_id or 0
+                'community': community_id
             }
             default_output = CommunityReportResponse.model_validate(default_output_data)
-            
-            # Check if we have a valid response
-            if response is None:
-                log.warning("Received None response from model")
-                return self._create_result(default_output)
-                
-            # Log the parsed response structure
-            log.debug(f"Response type: {type(response)}")
-            log.debug(f"Response attributes: {dir(response)}")
-            
-            # Handle different response formats from AIME API
-            if hasattr(response, 'parsed_response') and response.parsed_response is not None:
-                # Handle parsed response from JSON mode
-                output = response.parsed_response
-                log.debug("Successfully parsed response from parsed_response")
-            elif hasattr(response, 'text') and response.text:
-                response_text = response.text.strip()
-                if not response_text:
-                    log.warning("Received empty response text")
-                    return self._create_result(default_output)
-                    
-                try:
-                    log.debug(f"Attempting to parse response text: {response_text[:200]}...")
-                    
-                    # Handle markdown code block JSON
-                    if '```' in response_text:
-                        # Extract content between first ```json and next ```
-                        if '```json' in response_text:
-                            json_content = response_text.split('```json')[1].split('```')[0].strip()
-                        else:
-                            # If no ```json marker, just get content between first set of ```
-                            json_content = response_text.split('```')[1].strip()
-                        log.debug(f"Extracted JSON content: {json_content[:500]}...")
-                    else:
-                        json_content = response_text
-                    
-                    # Try to parse the response as JSON
-                    parsed = json.loads(json_content)
-                    log.debug(f"Successfully parsed JSON: {parsed}")
-                    
-                    # Handle case where response is wrapped in a 'response' key
-                    if isinstance(parsed, dict) and 'response' in parsed:
-                        parsed = parsed['response']
-                    
-                    # Handle both list and dict response formats
-                    if isinstance(parsed, list):
-                        if len(parsed) > 0:
-                            parsed = parsed[0]
-                        else:
-                            log.warning("Received empty list in response")
-                            return self._create_result(default_output)
-                    
-                    # Ensure we have a dictionary to work with
-                    if not isinstance(parsed, dict):
-                        log.warning(f"Unexpected response format: {type(parsed).__name__}")
-                        return self._create_result(default_output)
-                    
-                    # Ensure community ID is included in the response before validation
-                    parsed['community'] = community_id
-                    log.debug(f"Set community_id in parsed response: {parsed['community']}")
-                    
-                    # Log the final parsed response before validation
-                    log.debug(f"Final parsed response before validation: {parsed}")
-                    
-                    # Validate the response against the model
-                    try:
-                        output = CommunityReportResponse.model_validate(parsed)
-                        log.debug("Successfully validated response against model")
-                    except Exception as e:
-                        log.error(f"Error validating response against model: {str(e)}")
-                        # Instead of returning default output, try to extract what we can from the parsed response
-                        if isinstance(parsed, dict):
-                            # Create a new response with available fields
-                            partial_response = {
-                                'title': parsed.get('title', 'Generated Report'),
-                                'summary': parsed.get('summary', ''),
-                                'findings': parsed.get('findings', []),
-                                'rating': parsed.get('rating', 0.0),
-                                'rating_explanation': parsed.get('rating_explanation', 'No rating available'),
-                                'community': community_id
-                            }
-                            try:
-                                output = CommunityReportResponse.model_validate(partial_response)
-                                log.debug("Successfully created partial response from available fields")
-                            except Exception as e2:
-                                log.error(f"Error creating partial response: {str(e2)}")
-                                return self._create_result(default_output)
-                        else:
-                            return self._create_result(default_output)
-                except json.JSONDecodeError as je:
-                    log.error(f"Failed to parse response as JSON: {str(je)}")
-                    # Try to extract content from the raw response
-                    if hasattr(response, 'text'):
-                        response_text = response.text
-                        # Try to find JSON-like content
-                        start_idx = response_text.find('{')
-                        end_idx = response_text.rfind('}')
-                        if start_idx >= 0 and end_idx > start_idx:
-                            try:
-                                json_content = response_text[start_idx:end_idx+1]
-                                parsed = json.loads(json_content)
-                                if isinstance(parsed, dict):
-                                    parsed['community'] = community_id
-                                    try:
-                                        output = CommunityReportResponse.model_validate(parsed)
-                                        log.debug("Successfully created response from extracted JSON")
-                                    except Exception as e:
-                                        log.error(f"Error validating extracted JSON: {str(e)}")
-                                        return self._create_result(default_output)
-                                else:
-                                    return self._create_result(default_output)
-                            except Exception as e:
-                                log.error(f"Error processing extracted JSON: {str(e)}")
-                                return self._create_result(default_output)
-                    return self._create_result(default_output)
-                except Exception as e:
-                    log.error(f"Error processing response: {str(e)}")
-                    return self._create_result(default_output)
-            else:
-                log.warning("No valid response format found (missing both parsed_response and text)")
-                return self._create_result(default_output)
-            
-            # Ensure the output has the correct community ID
-            if not hasattr(output, 'community') or output.community is None:
-                output.community = community_id
-                log.debug(f"Set community_id in output: {output.community}")
-            elif output.community != community_id:
-                log.warning(f"Output had different community_id: {output.community}, updating to: {community_id}")
-                output.community = community_id
-                
-            return self._create_result(output)
+            return self._create_result(default_output)
             
         except Exception as e:
             log.exception(f"Error generating community report for community_id={community_id}")
@@ -372,6 +325,7 @@ class CommunityReportsExtractor:
         log.debug(f"Number of findings: {len(output.findings)}")
         log.debug(f"Text output length: {len(text_output)}")
         
+        # Create the result with the parsed output
         return CommunityReportsResult(
             structured_output=output,
             output=text_output,

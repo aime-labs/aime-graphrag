@@ -55,6 +55,10 @@ async def _run_extractor(
 ) -> CommunityReport | None:
     # RateLimiter
     rate_limiter = RateLimiter(rate=1, per=60)
+    
+    # Convert community to int for the extractor
+    community_id = int(community) if isinstance(community, str) else community
+    
     extractor = CommunityReportsExtractor(
         model,
         extraction_prompt=args.get("extraction_prompt", None),
@@ -62,7 +66,7 @@ async def _run_extractor(
         on_error=lambda e, stack, _data: callbacks.error(
             "Community Report Extraction Error", e, stack
         ),
-        community_id=int(community) if isinstance(community, str) else community
+        community_id=community_id
     )
 
     try:
@@ -73,8 +77,11 @@ async def _run_extractor(
             log.warning("No report found for community: %s", community)
             return None
 
+        # Convert community back to string for the CommunityReport
+        community_str = str(community)
+        
         return CommunityReport(
-            community=community,
+            community=community_str,
             full_content=results.output,
             level=level,
             rank=report.rating,
