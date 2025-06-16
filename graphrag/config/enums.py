@@ -87,16 +87,32 @@ class ReportingType(str, Enum):
         return f'"{self.value}"'
 
 
+class TextEmbeddingTarget(str, Enum):
+    """The target to use for text embeddings."""
+
+    all = "all"
+    required = "required"
+    selected = "selected"
+    none = "none"
+
+    def __repr__(self):
+        """Get a string representation."""
+        return f'"{self.value}"'
+
+
 class ModelType(str, Enum):
     """LLMType enum class definition."""
 
     # Embeddings
     OpenAIEmbedding = "openai_embedding"
     AzureOpenAIEmbedding = "azure_openai_embedding"
+    AIMEEmbedding = "aime_embedding"
+    BGEEmbedding = "bge_embedding"
 
     # Chat Completion
     OpenAIChat = "openai_chat"
     AzureOpenAIChat = "azure_openai_chat"
+    AIMEChat = "aime_chat"
 
     # Debug
     MockChat = "mock_chat"
@@ -112,6 +128,7 @@ class AuthType(str, Enum):
 
     APIKey = "api_key"
     AzureManagedIdentity = "azure_managed_identity"
+    None_ = "none"  # For local models that don't require authentication
 
 
 class AsyncType(str, Enum):
@@ -163,15 +180,3 @@ class NounPhraseExtractorType(str, Enum):
     """Noun phrase extractor based on dependency parsing and NER using SpaCy."""
     CFG = "cfg"
     """Noun phrase extractor combining CFG-based noun-chunk extraction and NER."""
-
-
-class ModularityMetric(str, Enum):
-    """Enum for the modularity metric to use."""
-
-    Graph = "graph"
-    """Graph modularity metric."""
-
-    LCC = "lcc"
-
-    WeightedComponents = "weighted_components"
-    """Weighted components modularity metric."""

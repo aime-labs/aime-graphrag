@@ -16,6 +16,7 @@ from graphrag.config.embeddings import create_collection_name
 from graphrag.index.operations.embed_text.strategies.typing import TextEmbeddingStrategy
 from graphrag.vector_stores.base import BaseVectorStore, VectorStoreDocument
 from graphrag.vector_stores.factory import VectorStoreFactory
+from graphrag.index.operations.embed_text.strategies import TextEmbedStrategyType, load_strategy
 
 log = logging.getLogger(__name__)
 
@@ -24,11 +25,23 @@ log = logging.getLogger(__name__)
 DEFAULT_EMBEDDING_BATCH_SIZE = 500
 
 
-class TextEmbedStrategyType(str, Enum):
-    """TextEmbedStrategyType class definition."""
-
+# Keep the old enum for backward compatibility
+class LegacyTextEmbedStrategyType(str, Enum):
+    """Legacy TextEmbedStrategyType class definition."""
     openai = "openai"
     mock = "mock"
+    bge = "bge"
+
+    def __repr__(self) -> str:
+        """Get a string representation."""
+        return f"{self.__class__.__name__}.{self.name}"
+
+
+class TextEmbedStrategyType(str, Enum):
+    """TextEmbedStrategyType class definition."""
+    OPENAI = "openai"
+    BGE = "bge"
+    MOCK = "mock"
 
     def __repr__(self):
         """Get a string representation."""
@@ -77,6 +90,20 @@ async def embed_text(
     )
 
 
+def _get_strategy_executor(strategy: dict):
+    """Get the appropriate strategy executor based on the strategy config."""
+    strategy_type = strategy.get("type", "")
+    
+    # Check if this is a BGE embedding strategy
+    if (strategy_type == "bge" or 
+        (isinstance(strategy.get("llm"), dict) and 
+         strategy["llm"].get("type", "").lower() == "bge_embedding")):
+        return load_strategy(TextEmbedStrategyType.BGE)
+    
+    # Default to OPENAI for backward compatibility
+    return load_strategy(TextEmbedStrategyType.OPENAI)
+
+
 async def _text_embed_in_memory(
     input: pd.DataFrame,
     callbacks: WorkflowCallbacks,
@@ -84,14 +111,13 @@ async def _text_embed_in_memory(
     embed_column: str,
     strategy: dict,
 ):
-    strategy_type = strategy["type"]
-    strategy_exec = load_strategy(strategy_type)
+    strategy_exec = _get_strategy_executor(strategy)
     strategy_config = {**strategy}
 
     texts: list[str] = input[embed_column].to_numpy().tolist()
     result = await strategy_exec(texts, callbacks, cache, strategy_config)
 
-    return result.embeddings
+    return result.embeddings if result else None
 
 
 async def _text_embed_with_vector_store(
@@ -105,9 +131,12 @@ async def _text_embed_with_vector_store(
     id_column: str = "id",
     title_column: str | None = None,
 ):
-    strategy_type = strategy["type"]
-    strategy_exec = load_strategy(strategy_type)
+    strategy_exec = _get_strategy_executor(strategy)
     strategy_config = {**strategy}
+
+    # if max_retries is not set, inject a dynamically assigned value based on the total number of expected LLM calls to be made
+    if strategy_config.get("llm") and strategy_config["llm"]["max_retries"] == -1:
+        strategy_config["llm"]["max_retries"] = len(input)
 
     # Get vector-storage configuration
     insert_batch_size: int = (
@@ -202,18 +231,30 @@ def _get_collection_name(vector_store_config: dict, embedding_name: str) -> str:
 def load_strategy(strategy: TextEmbedStrategyType) -> TextEmbeddingStrategy:
     """Load strategy method definition."""
     match strategy:
-        case TextEmbedStrategyType.openai:
+        case TextEmbedStrategyType.OPENAI:
             from graphrag.index.operations.embed_text.strategies.openai import (
                 run as run_openai,
             )
-
             return run_openai
-        case TextEmbedStrategyType.mock:
+        case TextEmbedStrategyType.BGE:
+            from graphrag.index.operations.embed_text.strategies.bge import (
+                run as run_bge,
+            )
+            return run_bge
+        case TextEmbedStrategyType.MOCK:
             from graphrag.index.operations.embed_text.strategies.mock import (
                 run as run_mock,
             )
-
             return run_mock
         case _:
-            msg = f"Unknown strategy: {strategy}"
-            raise ValueError(msg)
+            # For backward compatibility with old enum values
+            if str(strategy).lower() == "bge":
+                from graphrag.index.operations.embed_text.strategies.bge import (
+                    run as run_bge,
+                )
+                return run_bge
+            # Default to OPENAI for backward compatibility
+            from graphrag.index.operations.embed_text.strategies.openai import (
+                run as run_openai,
+            )
+            return run_openai

@@ -6,6 +6,7 @@
 from pydantic import BaseModel, Field
 
 from graphrag.config.defaults import graphrag_config_defaults
+from graphrag.config.enums import TextEmbeddingTarget
 from graphrag.config.models.language_model_config import LanguageModelConfig
 
 
@@ -28,6 +29,10 @@ class TextEmbeddingConfig(BaseModel):
         description="The batch max tokens to use.",
         default=graphrag_config_defaults.embed_text.batch_max_tokens,
     )
+    target: TextEmbeddingTarget = Field(
+        description="The target to use. 'all', 'required', 'selected', or 'none'.",
+        default=graphrag_config_defaults.embed_text.target,
+    )
     names: list[str] = Field(
         description="The specific embeddings to perform.",
         default=graphrag_config_defaults.embed_text.names,
@@ -44,7 +49,7 @@ class TextEmbeddingConfig(BaseModel):
         )
 
         return self.strategy or {
-            "type": TextEmbedStrategyType.openai,
+            "type": TextEmbedStrategyType.OPENAI,
             "llm": model_config.model_dump(),
             "num_threads": model_config.concurrent_requests,
             "batch_size": self.batch_size,
