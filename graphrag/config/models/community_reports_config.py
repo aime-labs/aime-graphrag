@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from graphrag.config.defaults import graphrag_config_defaults
 from graphrag.config.models.language_model_config import LanguageModelConfig
+from graphrag.config.models.bge_embedding_config import BGEEmbeddingConfig
 
 
 class CommunityReportsConfig(BaseModel):
@@ -17,6 +18,10 @@ class CommunityReportsConfig(BaseModel):
     model_id: str = Field(
         description="The model ID to use for community reports.",
         default=graphrag_config_defaults.community_reports.model_id,
+    )
+    language_model_config: LanguageModelConfig = Field(
+        description="The model configuration to use for community reports.",
+        default=None,
     )
     graph_prompt: str | None = Field(
         description="The community report extraction prompt to use for graph-based summarization.",

@@ -25,6 +25,7 @@ from graphrag.config.models.extract_graph_nlp_config import ExtractGraphNLPConfi
 from graphrag.config.models.global_search_config import GlobalSearchConfig
 from graphrag.config.models.input_config import InputConfig
 from graphrag.config.models.language_model_config import LanguageModelConfig
+from graphrag.config.models.bge_embedding_config import BGEEmbeddingConfig
 from graphrag.config.models.local_search_config import LocalSearchConfig
 from graphrag.config.models.output_config import OutputConfig
 from graphrag.config.models.prune_graph_config import PruneGraphConfig
@@ -67,27 +68,19 @@ class GraphRagConfig(BaseModel):
         self.root_dir = str(root_dir)
 
     models: dict[str, LanguageModelConfig] = Field(
-        description="Available language model configurations.",
-        default=graphrag_config_defaults.models,
+        description="The models to use.",
+        default_factory=dict,
     )
 
     def _validate_models(self) -> None:
-        """Validate the models configuration.
-
-        Ensure both a default chat model and default embedding model
-        have been defined. Other models may also be defined but
-        defaults are required for the time being as places of the
-        code fallback to default model configs instead
-        of specifying a specific model.
-
-        TODO: Don't fallback to default models elsewhere in the code.
-        Forcing code to specify a model to use and allowing for any
-        names for model configurations.
-        """
-        if defs.DEFAULT_CHAT_MODEL_ID not in self.models:
-            raise LanguageModelConfigMissingError(defs.DEFAULT_CHAT_MODEL_ID)
-        if defs.DEFAULT_EMBEDDING_MODEL_ID not in self.models:
-            raise LanguageModelConfigMissingError(defs.DEFAULT_EMBEDDING_MODEL_ID)
+        """Validate the models."""
+        if not self.models:
+            raise LanguageModelConfigMissingError("models")
+        for model_name, model_config in self.models.items():
+            if not model_config:
+                raise LanguageModelConfigMissingError(f"models.{model_name}")
+            if isinstance(model_config, LanguageModelConfig):
+                model_config._validate_type()
 
     input: InputConfig = Field(
         description="The input configuration.", default=InputConfig()
