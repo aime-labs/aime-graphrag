@@ -62,6 +62,7 @@ async def _run_extractor(
         on_error=lambda e, stack, _data: callbacks.error(
             "Community Report Extraction Error", e, stack
         ),
+        community_id=int(community) if isinstance(community, str) else community
     )
 
     try:

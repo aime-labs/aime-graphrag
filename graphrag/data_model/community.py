@@ -28,9 +28,6 @@ class Community(Named):
     relationship_ids: list[str] | None = None
     """List of relationship IDs related to the community (optional)."""
 
-    text_unit_ids: list[str] | None = None
-    """List of text unit IDs related to the community (optional)."""
-
     covariate_ids: dict[str, list[str]] | None = None
     """Dictionary of different types of covariates related to the community (optional), e.g. claims"""
 
@@ -53,7 +50,6 @@ class Community(Named):
         level_key: str = "level",
         entities_key: str = "entity_ids",
         relationships_key: str = "relationship_ids",
-        text_units_key: str = "text_unit_ids",
         covariates_key: str = "covariate_ids",
         parent_key: str = "parent",
         children_key: str = "children",
@@ -71,7 +67,6 @@ class Community(Named):
             short_id=d.get(short_id_key),
             entity_ids=d.get(entities_key),
             relationship_ids=d.get(relationships_key),
-            text_unit_ids=d.get(text_units_key),
             covariate_ids=d.get(covariates_key),
             attributes=d.get(attributes_key),
             size=d.get(size_key),
