@@ -4,5 +4,22 @@
 """Base protocol definitions for LLMs."""
 
 from .base import ChatModel, EmbeddingModel
+from .response import (
+    ChatCompletionResponse,
+    ChatCompletionResponseChoice,
+    CompletionUsage,
+    EmbeddingsResponse,
+    EmbeddingsResponseItem,
+    TextGenerationResponse,
+)
 
-__all__ = ["ChatModel", "EmbeddingModel"]
+__all__ = [
+    "ChatModel",
+    "EmbeddingModel",
+    "ChatCompletionResponse",
+    "ChatCompletionResponseChoice",
+    "CompletionUsage",
+    "EmbeddingsResponse",
+    "EmbeddingsResponseItem",
+    "TextGenerationResponse",
+]
