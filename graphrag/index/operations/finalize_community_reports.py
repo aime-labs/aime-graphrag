@@ -15,6 +15,10 @@ def finalize_community_reports(
     communities: pd.DataFrame,
 ) -> pd.DataFrame:
     """All the steps to transform final community reports."""
+    # Ensure both dataframes have the same type for community column
+    reports["community"] = reports["community"].astype(str)
+    communities["community"] = communities["community"].astype(str)
+    
     # Merge with communities to add shared fields
     community_reports = reports.merge(
         communities.loc[:, ["community", "parent", "children", "size", "period"]],
@@ -23,7 +27,8 @@ def finalize_community_reports(
         copy=False,
     )
 
-    community_reports["community"] = community_reports["community"].astype(int)
+    # Convert community to float first to handle decimal points, then to int
+    community_reports["community"] = community_reports["community"].astype(float).astype(int)
     community_reports["human_readable_id"] = community_reports["community"]
     community_reports["id"] = [uuid4().hex for _ in range(len(community_reports))]
 

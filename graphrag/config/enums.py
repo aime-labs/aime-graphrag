@@ -180,3 +180,18 @@ class NounPhraseExtractorType(str, Enum):
     """Noun phrase extractor based on dependency parsing and NER using SpaCy."""
     CFG = "cfg"
     """Noun phrase extractor combining CFG-based noun-chunk extraction and NER."""
+
+
+class ModularityMetric(str, Enum):
+    """Enum for the type of modularity calculation to perform."""
+
+    Graph = "graph"
+    """Calculate modularity for the entire graph."""
+    LCC = "lcc"
+    """Calculate modularity for the largest connected component."""
+    WeightedComponents = "weighted_components"
+    """Calculate weighted modularity across all connected components."""
+
+    def __repr__(self):
+        """Get a string representation."""
+        return f'"{self.value}"'
