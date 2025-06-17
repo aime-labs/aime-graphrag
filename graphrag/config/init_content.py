@@ -19,41 +19,35 @@ INIT_YAML = f"""\
 
 models:
   {defs.DEFAULT_CHAT_MODEL_ID}:
-    type: {defs.DEFAULT_CHAT_MODEL_TYPE.value} # or azure_openai_chat
-    # api_base: https://<instance>.openai.azure.com
-    # api_version: 2024-05-01-preview
-    auth_type: {defs.DEFAULT_CHAT_MODEL_AUTH_TYPE.value} # or azure_managed_identity
-    api_key: ${{GRAPHRAG_API_KEY}} # set this in the generated .env file
-    # audience: "https://cognitiveservices.azure.com/.default"
-    # organization: <organization_id>
-    model: {defs.DEFAULT_CHAT_MODEL}
-    # deployment_name: <azure_model_deployment_name>
-    # encoding_model: {defs.ENCODING_MODEL} # automatically set by tiktoken if left undefined
-    model_supports_json: true # recommended if this is available for your model.
-    concurrent_requests: {language_model_defaults.concurrent_requests} # max number of simultaneous LLM requests allowed
-    async_mode: {language_model_defaults.async_mode.value} # or asyncio
-    retry_strategy: native
-    max_retries: {language_model_defaults.max_retries}
-    tokens_per_minute: {language_model_defaults.tokens_per_minute}              # set to null to disable rate limiting
-    requests_per_minute: {language_model_defaults.requests_per_minute}            # set to null to disable rate limiting
+    type: aime_chat
+    api_url: "https://api.aime.info/"
+    model: "llama4_chat"
+    email: ""  # Set your AIME email
+    api_key: ""  # Set your AIME API key
+    encoding_model: "cl100k_base"
+    max_tokens: 1000
+    temperature: 0.1
+    top_p: 0.8
+    model_supports_json: true
+    concurrent_requests: 15
+    async_mode: asyncio
+    retry_strategy: exponential
+    max_retries: 3
+    initial_retry_delay: 5
+    max_retry_delay: 60 
+    tokens_per_minute: 5000
+    requests_per_minute: 30
+    timeout: 180
   {defs.DEFAULT_EMBEDDING_MODEL_ID}:
-    type: {defs.DEFAULT_EMBEDDING_MODEL_TYPE.value} # or azure_openai_embedding
-    # api_base: https://<instance>.openai.azure.com
-    # api_version: 2024-05-01-preview
-    auth_type: {defs.DEFAULT_EMBEDDING_MODEL_AUTH_TYPE.value} # or azure_managed_identity
-    api_key: ${{GRAPHRAG_API_KEY}}
-    # audience: "https://cognitiveservices.azure.com/.default"
-    # organization: <organization_id>
-    model: {defs.DEFAULT_EMBEDDING_MODEL}
-    # deployment_name: <azure_model_deployment_name>
-    # encoding_model: {defs.ENCODING_MODEL} # automatically set by tiktoken if left undefined
-    model_supports_json: true # recommended if this is available for your model.
-    concurrent_requests: {language_model_defaults.concurrent_requests} # max number of simultaneous LLM requests allowed
-    async_mode: {language_model_defaults.async_mode.value} # or asyncio
+    type: bge_embedding
+    model: BAAI/bge-m3
+    encoding_model: ""  # BGE models use their own tokenizer
+    device: cuda
+    concurrent_requests: 15
+    async_mode: asyncio
     retry_strategy: native
-    max_retries: {language_model_defaults.max_retries}
-    tokens_per_minute: {language_model_defaults.tokens_per_minute}              # set to null to disable rate limiting
-    requests_per_minute: {language_model_defaults.requests_per_minute}            # set to null to disable rate limiting
+    max_retries: -1
+    auth_type: none
 
 ### Input settings ###
 
