@@ -68,9 +68,9 @@ Many users have used platforms such as [ollama](https://ollama.com/) to proxy th
 
 As of GraphRAG 2.0.0, we support model injection through the use of a standard chat and embedding Protocol and an accompanying ModelFactory that you can use to register your model implementation. This is not supported with the CLI, so you'll need to use GraphRAG as a library.
 
-- Our Protocol is [defined here](https://github.com/microsoft/graphrag/blob/main/graphrag/language_model/protocol/base.py)
-- Our base implementation, which wraps fnllm, [is here](https://github.com/microsoft/graphrag/blob/main/graphrag/language_model/providers/fnllm/models.py)
-- We have a simple mock implementation in our tests that you can [reference here](https://github.com/microsoft/graphrag/blob/main/tests/mock_provider.py)
+- Our Protocol is [defined here](https://github.com/aime-labs/aime-graphrag/blob/main/graphrag/language_model/protocol/base.py)
+- Our base implementation, which wraps fnllm, [is here](https://github.com/aime-labs/aime-graphrag/blob/main/graphrag/language_model/providers/fnllm/models.py)
+- We have a simple mock implementation in our tests that you can [reference here](https://github.com/aime-labs/aime-graphrag/blob/main/tests/mock_provider.py)
 
 Once you have a model implementation, you need to register it with our ModelFactory:
 
@@ -99,3 +99,31 @@ extract_graph:
 ```
 
 Note that your custom model will be passed the same params for init and method calls that we use throughout GraphRAG. There is not currently any ability to define custom parameters, so you may need to use closure scope or a factory pattern within your implementation to get custom config values.
+
+## Using AIME Chat and BGE Embedding Models
+
+GraphRAG supports additional model types for chat and embedding, including AIME API Server chat models and BAAI/BGE embedding models.
+
+### AIME Chat Model
+Use the `aime_chat` type to connect to chat models served via the AIME API Server. Example configuration:
+
+```yaml
+models:
+  aime_chat_model:
+    type: aime_chat
+    api_base: https://api.aime.info
+    model: llama4_chat
+    api_key: ${AIME_API_KEY}
+```
+
+### BGE Embedding Model
+Use the `bge_embedding` type for BAAI/BGE embedding models (e.g., BAAI/bge-m3):
+
+```yaml
+models:
+  bge_embedding_model:
+    type: bge_embedding
+    model: BAAI/bge-m3
+```
+
+Reference these model keys in your workflow steps (e.g., `model_id: aime_chat_model` or `model_id: bge_embedding_model`).

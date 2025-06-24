@@ -2,7 +2,7 @@
 
 The default configuration mode may be configured by using a `settings.yml` or `settings.json` file in the data project root. If a `.env` file is present along with this config file, then it will be loaded, and the environment variables defined therein will be available for token replacements in your configuration document using `${ENV_VAR}` syntax. We initialize with YML by default in `graphrag init` but you may use the equivalent JSON form if preferred.
 
-Many of these config values have defaults. Rather than replicate them here, please refer to the [constants in the code](https://github.com/microsoft/graphrag/blob/main/graphrag/config/defaults.py) directly.
+Many of these config values have defaults. Rather than replicate them here, please refer to the [constants in the code](https://github.com/aime-labs/aime-graphrag/blob/main/graphrag/config/defaults.py) directly.
 
 For example:
 
@@ -41,7 +41,7 @@ models:
 
 - `api_key` **str** - The OpenAI API key to use.
 - `auth_type` **api_key|managed_identity** - Indicate how you want to authenticate requests.
-- `type` **openai_chat|azure_openai_chat|openai_embedding|azure_openai_embedding|mock_chat|mock_embeddings** - The type of LLM to use.
+- `type` **openai_chat|azure_openai_chat|openai_embedding|azure_openai_embedding|mock_chat|mock_embeddings|aime_chat|bge_embedding** - The type of LLM or embedding model to use.
 - `model` **str** - The model name.
 - `encoding_model` **str** - The text encoding model to use. Default is to use the encoding model aligned with the language model (i.e., it is retrieved from tiktoken if unset).
 - `api_base` **str** - The API base url to use.
@@ -68,6 +68,32 @@ models:
 - `presence_penalty` **float** - Frequency penalty for token generation. Not valid for o-series models.
 - `max_completion_tokens` **int** - Max number of tokens to consume for chat completion. Must be large enough to include an unknown amount for "reasoning" by the model. o-series models only.
 - `reasoning_effort` **low|medium|high** - Amount of "thought" for the model to expend reasoning about a response. o-series models only.
+
+### Supported Model Types
+
+- `openai_chat`, `azure_openai_chat`: For OpenAI and Azure OpenAI chat models.
+- `openai_embedding`, `azure_openai_embedding`: For OpenAI and Azure OpenAI embedding models.
+- `mock_chat`, `mock_embeddings`: For testing with mock models.
+- `aime_chat`: For chat models served via the AIME API Server. Requires `api_base` and `model` fields.
+- `bge_embedding`: For BAAI/BGE embedding models (e.g., BAAI/bge-m3). Requires `model` field (e.g., `BAAI/bge-m3`).
+
+#### Example: AIME Chat Model
+```yaml
+models:
+  aime_chat_model:
+    type: aime_chat
+    api_base: https://api.aime.info
+    model: llama-3-8b-instruct
+    api_key: ${AIME_API_KEY}
+```
+
+#### Example: BGE Embedding Model
+```yaml
+models:
+  bge_embedding_model:
+    type: bge_embedding
+    model: BAAI/bge-m3
+```
 
 ## Input Files and Chunking
 
@@ -377,13 +403,25 @@ Indicates whether we should run UMAP dimensionality reduction. This is used to p
 - `local_search_top_p` **float** - The top-p value to use for token generation in local search.
 - `local_search_n` **int** - The number of completions to generate in local search.
 - `local_search_llm_max_gen_tokens` **int** - The maximum number of generated tokens for the LLM in local search. Only use if a non-o-series model.
-- `local_search_llm_max_gen_completion_tokens` **int** - The maximum number of generated tokens for the LLM in local search. Only use for o-series models.
+- `local_search_llm_max_gen_completion_tokens**int** - The maximum number of generated tokens for the LLM in local search. Only use for o-series models.
 
 ### basic_search
 
 #### Fields
 
-- `chat_model_id` **str** - Name of the model definition to use for Chat Completion calls.
-- `embedding_model_id` **str** - Name of the model definition to use for Embedding calls.
-- `prompt` **str** - The prompt file to use.
-- `k` **int | None** - Number of text units to retrieve from the vector store for context building.
+- `chat_model_id**str** - Name of the model definition to use for Chat Completion calls.
+- `embedding_model_id**str** - Name of the model definition to use for Embedding calls.
+
+### Modularity Metrics Configuration
+
+The `modularity_metric` field specifies how modularity should be calculated for community detection. Available options:
+
+- `graph`: Calculate modularity for the entire graph
+- `lcc`: Calculate modularity for the largest connected component only
+- `weighted_components`: Calculate weighted modularity across all connected components
+
+Example configuration:
+```yaml
+indexing:
+  modularity_metric: weighted_components  # Use weighted modularity across components
+```

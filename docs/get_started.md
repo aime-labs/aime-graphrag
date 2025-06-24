@@ -75,6 +75,8 @@ auth_type: azure_managed_identity # Default auth_type is is api_key
 
 You will also need to login with [az login](https://learn.microsoft.com/en-us/cli/azure/authenticate-azure-cli) and select the subscription with your endpoint.
 
+> **Note:** In addition to OpenAI and Azure models, GraphRAG supports [AIME API Server chat models (`aime_chat`)](config/yaml.md) and [BGE embedding models (`bge_embedding`)](config/yaml.md). See the config docs for example YAML.
+
 ## Running the Indexing pipeline
 
 Finally we'll run the pipeline!
@@ -118,3 +120,50 @@ Please refer to [Query Engine](query/overview.md) docs for detailed information 
 - To learn more about Initialization, refer to the [Initialization documentation](config/init.md).
 - For more details about using the CLI, refer to the [CLI documentation](cli.md).
 - Check out our [visualization guide](visualization_guide.md) for a more interactive experience in debugging and exploring the knowledge graph.
+
+## Setting Up GraphRAG with AIME-Chat Models Using MLC
+
+You can run GraphRAG with AIME-chat models in a reproducible environment using [AIME-MLC](https://github.com/aime-team/aime-mlc). This is especially useful for local development and experimentation.
+
+### 1. Create and Open an MLC Container
+
+```bash
+mlc create graphrag Pytorch 2.4.0 -w /home/your_username/workspace
+mlc open graphrag
+```
+
+- Replace `/home/your_username/workspace` with your actual workspace path.
+- This will create and open a container named `graphrag` with PyTorch 2.4.0.
+
+### 2. Install Dependencies
+
+Inside the container, install dependencies using Poetry and pip:
+
+```bash
+poetry install
+pip install -r e .
+```
+
+### 3. Configure AIME-Chat Models
+
+Update your `settings.yaml` to include an `aime_chat` model. Example:
+
+```yaml
+models:
+  aime_chat_model:
+    type: aime_chat
+    api_base: https://api.aime.info
+    model: llama-3-8b-instruct
+    api_key: ${AIME_API_KEY}
+```
+
+### 4. Run GraphRAG Pipelines via CLI
+
+You can now run various GraphRAG pipelines using the CLI. See the [GraphRAG CLI documentation](https://microsoft.github.io/graphrag/cli/) for available commands and options.
+
+Example:
+```bash
+graphrag --root ./ragtest
+```
+
+This will start the indexing pipeline using your configured models.

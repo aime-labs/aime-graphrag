@@ -24,6 +24,8 @@
 
 The GraphRAG project is a data pipeline and transformation suite that is designed to extract meaningful, structured data from unstructured text using the power of LLMs.
 
+**New:** GraphRAG now supports additional model types, including [AIME API Server chat models (`aime_chat`)](docs/config/yaml.md) and [BGE embedding models (`bge_embedding`)](docs/config/yaml.md). See the configuration docs for details and examples.
+
 To learn more about GraphRAG and how it can be used to enhance your LLM's ability to reason about your private data, please visit the <a href="https://www.microsoft.com/en-us/research/blog/graphrag-unlocking-llm-discovery-on-narrative-private-data/" target="_blank">Microsoft Research Blog Post.</a>
 
 ## Quickstart
@@ -59,9 +61,9 @@ See [RAI_TRANSPARENCY.md](./RAI_TRANSPARENCY.md)
 
 - [What is GraphRAG?](./RAI_TRANSPARENCY.md#what-is-graphrag)
 - [What can GraphRAG do?](./RAI_TRANSPARENCY.md#what-can-graphrag-do)
-- [What are GraphRAG’s intended use(s)?](./RAI_TRANSPARENCY.md#what-are-graphrags-intended-uses)
+- [What are GraphRAG's intended use(s)?](./RAI_TRANSPARENCY.md#what-are-graphrags-intended-uses)
 - [How was GraphRAG evaluated? What metrics are used to measure performance?](./RAI_TRANSPARENCY.md#how-was-graphrag-evaluated-what-metrics-are-used-to-measure-performance)
-- [What are the limitations of GraphRAG? How can users minimize the impact of GraphRAG’s limitations when using the system?](./RAI_TRANSPARENCY.md#what-are-the-limitations-of-graphrag-how-can-users-minimize-the-impact-of-graphrags-limitations-when-using-the-system)
+- [What are the limitations of GraphRAG? How can users minimize the impact of GraphRAG's limitations when using the system?](./RAI_TRANSPARENCY.md#what-are-the-limitations-of-graphrag-how-can-users-minimize-the-impact-of-graphrags-limitations-when-using-the-system)
 - [What operational factors and settings allow for effective and responsible use of GraphRAG?](./RAI_TRANSPARENCY.md#what-operational-factors-and-settings-allow-for-effective-and-responsible-use-of-graphrag)
 
 ## Trademarks
@@ -75,3 +77,12 @@ Any use of third-party trademarks or logos are subject to those third-party's po
 ## Privacy
 
 [Microsoft Privacy Statement](https://privacy.microsoft.com/en-us/privacystatement)
+
+## Recent Updates
+
+- **New Model Support**: Added support for AIME API Server chat models (`aime_chat`) and BGE embedding models (`bge_embedding`). See the [model configuration docs](docs/config/models.md) for details.
+- **Enhanced Modularity Metrics**: Introduced new modularity calculation options for community detection:
+  - Graph-wide modularity
+  - Largest connected component modularity
+  - Weighted component modularity
+  See the [configuration docs](docs/config/yaml.md) for details.
