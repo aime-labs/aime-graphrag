@@ -17,10 +17,21 @@ class BGEProvider:
             raise ImportError("FlagEmbedding is required for BGEProvider.")
         self.model = FlagModel(model_name, query_instruction=None, use_fp16=True, device=device)
 
+    def force_float32(self):
+        # Set use_fp16 to False and cast model to float32 if possible
+        if hasattr(self.model, 'use_fp16'):
+            self.model.use_fp16 = False
+        if hasattr(self.model, 'float'):
+            try:
+                self.model.float()
+            except Exception:
+                pass
+
     def embed(self, text: str, **kwargs: Any) -> List[float]:
         """
         Generate an embedding for a single text.
         """
+        self.force_float32()
         emb = self.model.encode([text])[0]
         return emb.tolist() if hasattr(emb, 'tolist') else list(emb)
 
@@ -28,6 +39,7 @@ class BGEProvider:
         """
         Generate embeddings for a batch of texts.
         """
+        self.force_float32()
         embs = self.model.encode(text_list)
         return [e.tolist() if hasattr(e, 'tolist') else list(e) for e in embs]
 
