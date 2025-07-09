@@ -123,14 +123,14 @@ community_reports:
   max_input_length: {graphrag_config_defaults.community_reports.max_input_length}
 
 embed_graph:
-  enabled: false # if true, will generate node2vec embeddings for nodes
+  enabled: true # if true, will generate node2vec embeddings for nodes
 
 umap:
-  enabled: false # if true, will generate UMAP embeddings for nodes (embed_graph must also be enabled)
+  enabled: true # if true, will generate UMAP embeddings for nodes (embed_graph must also be enabled)
 
 snapshots:
-  graphml: false
-  embeddings: false
+  graphml: truee
+  embeddings: true
 
 ### Query settings ###
 ## The prompt locations are required here, but each search method has a number of optional knobs that can be tuned.
