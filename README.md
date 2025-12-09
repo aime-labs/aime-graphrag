@@ -18,6 +18,9 @@
   <a href="https://github.com/microsoft/graphrag/discussions">
     <img alt="GitHub Discussions" src="https://img.shields.io/github/discussions/microsoft/graphrag">
   </a>
+  <a href="https://deepwiki.com/aime-labs/aime-graphrag">
+  <img alt="Ask DeepWiki" src="https://deepwiki.com/badge.svg">
+</a>
 </div>
 
 ## Overview
