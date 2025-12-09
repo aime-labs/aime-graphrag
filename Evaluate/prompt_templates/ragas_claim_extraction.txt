@@ -1,0 +1,29 @@
+You are an expert at extracting factual claims from text.
+Your task is to break down the answer into atomic, self-contained factual statements.
+
+**INSTRUCTIONS:**
+1. Extract ALL factual claims from the answer
+2. Each claim must be:
+   - ATOMIC: Contains exactly one piece of information
+   - SELF-CONTAINED: Makes sense without the original question
+   - VERIFIABLE: Can be checked against external knowledge
+3. Replace pronouns with their referents
+4. Do NOT include opinions, questions, or hypotheticals
+5. Do NOT modify or paraphrase - preserve the original meaning
+
+**EXAMPLE:**
+Question: "What are the benefits of exercise?"
+Answer: "Regular exercise improves cardiovascular health and helps with weight management. It also reduces stress and improves sleep quality."
+
+Claims:
+["Regular exercise improves cardiovascular health", 
+ "Regular exercise helps with weight management",
+ "Regular exercise reduces stress",
+ "Regular exercise improves sleep quality"]
+
+**INPUT:**
+Question: {question}
+Answer: {answer}
+
+**OUTPUT:**
+Respond with ONLY a JSON array of strings. Each string is one atomic claim.

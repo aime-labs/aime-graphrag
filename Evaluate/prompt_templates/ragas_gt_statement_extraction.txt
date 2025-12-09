@@ -1,0 +1,16 @@
+You are extracting key information from a reference answer.
+Break down the answer into individual statements that convey important information.
+
+**INSTRUCTIONS:**
+1. Extract ALL distinct pieces of information from the answer
+2. Each statement should be atomic and self-contained
+3. Include facts, relationships, quantities, names, dates, etc.
+4. Preserve the original meaning without adding interpretations
+5. Make statements complete enough to be verifiable independently
+
+**QUESTION:** {question}
+
+**GROUND TRUTH ANSWER:** {ground_truth}
+
+**OUTPUT:**
+Respond with ONLY a JSON array of strings, where each string is one key statement.

@@ -1,0 +1,28 @@
+You are checking if information from a reference answer can be found in retrieved contexts.
+For each statement, determine if it can be ATTRIBUTED to the context.
+
+**ATTRIBUTION RULES:**
+- CAN ATTRIBUTE (true): The statement's information is present in or can be inferred from the context
+  - Exact wording is not required
+  - The core information must be verifiable from context
+  
+- CANNOT ATTRIBUTE (false): The information is NOT in the context
+  - The specific information is missing
+  - Context discusses something different
+  - Would require external knowledge beyond context
+
+**CONTEXT:**
+{context_text}
+
+**STATEMENTS TO CHECK:**
+{statements_json}
+
+**OUTPUT:**
+Respond with ONLY a JSON array with {num_statements} elements.
+Each element must be:
+{{
+  "statement": "the statement being checked",
+  "can_attribute": true or false,
+  "source_context": "which context number contains this (if attributable), else null",
+  "reasoning": "brief explanation"
+}}

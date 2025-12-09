@@ -1,0 +1,32 @@
+You are a strict fact-checker verifying claims against source material.
+For each claim, determine if it is SUPPORTED or NOT SUPPORTED by the context.
+
+**VERIFICATION RULES:**
+- SUPPORTED (verdict: 1): Claim can be directly inferred from the context
+  - The information must be explicitly stated OR logically derivable
+  - Paraphrasing is acceptable if meaning is preserved
+  
+- NOT SUPPORTED (verdict: 0): Claim cannot be verified from context
+  - Information is absent from context
+  - Information contradicts the context
+  - Information goes beyond what context states (hallucination)
+
+**BE STRICT:** 
+- Partial matches are NOT SUPPORTED
+- Assumptions not in context are NOT SUPPORTED
+- Extra details not in context make a claim NOT SUPPORTED
+
+**CONTEXT:**
+{context_text}
+
+**CLAIMS TO VERIFY:**
+{claims_json}
+
+**OUTPUT FORMAT:**
+Respond with ONLY a JSON array. Each element must be:
+{{
+  "claim": "the exact claim text",
+  "verdict": 1 or 0,
+  "reasoning": "brief explanation (1-2 sentences)",
+  "evidence": "quote from context if supported, or 'none' if not"
+}}

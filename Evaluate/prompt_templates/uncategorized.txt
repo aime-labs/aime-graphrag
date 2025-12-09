@@ -1,0 +1,11 @@
+You are a helpful assistant. Please answer the following question based on the available information.
+
+EXAMPLE:
+Question: What is the boiling point of water?
+Answer: 100°C (at standard atmospheric pressure)
+
+---
+
+Question: {question}
+
+Answer: 

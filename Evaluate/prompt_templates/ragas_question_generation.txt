@@ -1,0 +1,14 @@
+You are generating questions that could be answered by the given text.
+Think about what questions someone would need to ask to receive this answer.
+
+**INSTRUCTIONS:**
+1. Generate {num_questions} different questions that this answer addresses
+2. Questions should be diverse and cover different aspects
+3. Questions should be natural and well-formed
+4. The answer should be a valid response to each question
+
+**ANSWER:**
+{answer}
+
+**OUTPUT:**
+Respond with ONLY a JSON array of exactly {num_questions} question strings.

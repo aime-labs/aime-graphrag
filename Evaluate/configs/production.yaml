@@ -1,0 +1,64 @@
+# Production environment configuration
+environment: production
+
+# LLM Configuration
+llm_model:
+  name: gpt-4-turbo
+  type: openai
+  api_base_url: https://api.openai.com/v1
+  max_tokens: 4096
+  temperature: 0.0  # More deterministic for production
+  timeout: 60
+
+# Embedding Model Configuration  
+embedding_model:
+  name: BAAI/bge-large-en-v1.5
+  type: huggingface
+  timeout: 60
+
+# Judge LLM for evaluation metrics
+judge_llm_model:
+  name: llama4_chat
+  type: mistral
+  timeout: 60
+
+# Evaluation Settings
+evaluation:
+  methods:
+    - local_search
+    - global_search
+    - basic_search
+    - llm_with_context
+  max_samples_per_type: null
+  max_concurrent_tasks: 20  # Higher for production
+  batch_size: 10
+  enable_caching: true
+  cache_ttl: 7200
+
+# Reproducibility Configuration
+reproducibility:
+  random_seed: 42
+  evaluation_order_seed: 123
+  enable_deterministic_ordering: true
+  track_versions: true
+  mlflow_tracking_uri: http://mlflow-server:5000
+  experiment_name: graphrag_evaluation_prod
+
+# Resource Management
+resources:
+  temp_dir: /var/tmp/graphrag_eval
+  max_memory_usage: 16GB
+  cleanup_temp_files: true
+  connection_pool_size: 20
+  request_timeout: 60
+
+# Logging Configuration
+logging:
+  level: INFO
+  enable_structured_logging: true
+  enable_metrics: true
+  file_path: /var/log/graphrag_eval/evaluation.log
+
+# Project paths (set via environment variables in production)
+project_path: ${EVAL_PROJECT_PATH}
+output_dir: ${EVAL_OUTPUT_DIR}

@@ -1,0 +1,63 @@
+# High Performance Configuration for GraphRAG Evaluation
+environment: production
+
+# LLM Configuration
+llm_model:
+  name: gpt-4-turbo
+  type: openai
+  api_base_url: https://api.openai.com/v1
+  max_tokens: 4096
+  temperature: 0.1
+  timeout: 60  # Increased timeout for stability
+
+# Embedding Model Configuration  
+embedding_model:
+  name: BAAI/bge-large-en-v1.5
+  type: huggingface
+  timeout: 60
+
+# Judge LLM for evaluation metrics
+judge_llm_model:
+  name: llama4_chat
+  type: mistral
+  timeout: 60
+
+# High Performance Evaluation Settings
+evaluation:
+  methods:
+    - local_search
+    - global_search
+    - basic_search
+    - llm_with_context
+  max_samples_per_type: null  # Process all samples
+  max_concurrent_tasks: 30  # Increased from 10 to 30
+  batch_size: 15  # Increased from 2 to 15
+  enable_caching: true
+  cache_ttl: 7200  # Longer cache TTL
+  simple_concurrency: true  # Use simple semaphore instead of adaptive
+  disable_resource_monitoring: true  # Disable for API-bound workloads
+
+# Reproducibility Configuration
+reproducibility:
+  random_seed: 42
+  evaluation_order_seed: 123
+  enable_deterministic_ordering: true
+  track_versions: true
+  experiment_name: graphrag_evaluation_high_perf
+
+# Optimized Resource Management
+resources:
+  temp_dir: /tmp/graphrag_eval
+  cleanup_temp_files: true
+  connection_pool_size: 20  # Increased for better throughput
+  request_timeout: 60
+  adapter_pool_size: 10  # Increased pool size
+  cache_size: 2000  # Larger cache
+  intermediate_save_frequency: 30  # Save less frequently
+
+# Performance Optimizations
+optimizations:
+  interleaved_task_execution: true  # Mix methods for better API utilization
+  reduced_logging: false  # Keep detailed logging for debugging
+  simplified_cache_architecture: true
+  request_batching: false  # Will be implemented later

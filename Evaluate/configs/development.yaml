@@ -1,0 +1,61 @@
+# Development environment configuration
+environment: development
+
+# LLM Configuration
+llm_model:
+  name: gpt-4-turbo
+  type: openai
+  api_base_url: https://api.openai.com/v1
+  max_tokens: 4096
+  temperature: 0.1
+  timeout: 30
+
+# Embedding Model Configuration  
+embedding_model:
+  name: BAAI/bge-large-en-v1.5
+  type: huggingface
+  timeout: 30
+
+# Judge LLM for evaluation metrics
+judge_llm_model:
+  name: llama4_chat
+  type: mistral
+  timeout: 30
+
+# Evaluation Settings
+evaluation:
+  methods:
+    - local_search
+    - global_search
+    - basic_search
+  max_samples_per_type: null  # Process all samples
+  max_concurrent_tasks: 5  # Lower for development
+  batch_size: 3
+  enable_caching: true
+  cache_ttl: 3600
+
+# Reproducibility Configuration
+reproducibility:
+  random_seed: 42
+  evaluation_order_seed: 123
+  enable_deterministic_ordering: true
+  track_versions: true
+  experiment_name: graphrag_evaluation_dev
+
+# Resource Management
+resources:
+  temp_dir: /tmp/graphrag_eval
+  cleanup_temp_files: true
+  connection_pool_size: 5  # Lower for development
+  request_timeout: 30
+
+# Logging Configuration
+logging:
+  level: DEBUG
+  enable_structured_logging: true
+  enable_metrics: true
+  file_path: logs/evaluation_dev.log
+
+# Project paths (override with environment variables)
+project_path: /path/to/aime-graphrag
+output_dir: ./output/dev

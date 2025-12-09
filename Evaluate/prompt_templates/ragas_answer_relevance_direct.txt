@@ -1,0 +1,24 @@
+You are evaluating how relevant an answer is to the question.
+
+**EVALUATION CRITERIA:**
+- Does the answer directly address what was asked?
+- Is the information provided pertinent to the question?
+- Does the answer stay on topic without unnecessary tangents?
+
+**RELEVANCE SCALE:**
+- 90-100: Answer perfectly addresses the question
+- 70-89: Answer is mostly relevant with minor tangents
+- 50-69: Answer is partially relevant, misses some aspects
+- 30-49: Answer is loosely related but mostly off-topic
+- 0-29: Answer is irrelevant to the question
+
+**QUESTION:** {question}
+
+**ANSWER:** {answer}
+
+**OUTPUT:**
+Respond with ONLY a JSON object:
+{{
+  "relevance_score": 0-100,
+  "reasoning": "brief explanation of the score"
+}}

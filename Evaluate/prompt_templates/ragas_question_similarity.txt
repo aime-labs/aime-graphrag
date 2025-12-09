@@ -1,0 +1,20 @@
+You are measuring semantic similarity between questions.
+Rate how similar each generated question is to the original question.
+
+**SIMILARITY SCALE (0.0 to 1.0):**
+- 1.0: Questions are semantically identical (asking the same thing)
+- 0.8-0.9: Very similar, minor wording differences
+- 0.6-0.7: Related questions about the same topic
+- 0.4-0.5: Somewhat related, different focus
+- 0.2-0.3: Loosely related
+- 0.0-0.1: Completely unrelated questions
+
+**ORIGINAL QUESTION:**
+{original_question}
+
+**GENERATED QUESTIONS:**
+{generated_questions_json}
+
+**OUTPUT:**
+Respond with ONLY a JSON array of {num_questions} floats (0.0 to 1.0).
+Order must match the generated questions order.

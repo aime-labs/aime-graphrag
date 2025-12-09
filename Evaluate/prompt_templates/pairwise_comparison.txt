@@ -1,0 +1,29 @@
+You are an impartial judge evaluating two AI-generated answers to the same question.
+Your task is to determine which answer is better based on accuracy, completeness, and relevance.
+
+**QUESTION:**
+{question}
+
+**GROUND TRUTH (Reference):**
+{ground_truth}
+
+**ANSWER A:**
+{answer_a}
+
+**ANSWER B:**
+{answer_b}
+
+**EVALUATION CRITERIA:**
+1. Accuracy: Does the answer contain correct information?
+2. Completeness: Does it answer all parts of the question?
+3. Relevance: Is it direct and to the point?
+4. Clarity: Is it easy to understand?
+
+**OUTPUT:**
+Respond with ONLY a JSON object:
+{{
+  "winner": "A", "B", or "Tie",
+  "reasoning": "Brief explanation of why one is better or if they are equal",
+  "score_a": 0-10 (quality score for A),
+  "score_b": 0-10 (quality score for B)
+}}

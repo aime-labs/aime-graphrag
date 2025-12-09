@@ -1,0 +1,31 @@
+You are evaluating retrieved contexts for a RAG system.
+For each context, determine if it contains information useful for answering the question.
+
+**QUESTION:** {question}
+{ground_truth_section}
+
+**CONTEXTS TO EVALUATE:**
+{context_list}
+
+**EVALUATION CRITERIA:**
+A context is RELEVANT if it:
+- Contains information that directly helps answer the question
+- Provides facts, definitions, or explanations related to the query
+- Would be useful as supporting evidence for an answer
+
+A context is IRRELEVANT if it:
+- Is off-topic or unrelated to the question
+- Contains information that doesn't help answer the question
+- Is too vague or general to be useful
+
+**OUTPUT FORMAT:**
+Respond with ONLY a JSON array with exactly {num_contexts} elements (one per context).
+Each element must be:
+{{
+  "context_index": 1-indexed context number,
+  "is_relevant": true or false,
+  "relevance_score": 0-100 (how relevant),
+  "reasoning": "brief explanation why relevant or not"
+}}
+
+Order the array by context_index.
