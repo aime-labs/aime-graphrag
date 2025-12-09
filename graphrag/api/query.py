@@ -99,24 +99,40 @@ async def global_search(
 
     def on_context(context: Any) -> None:
         nonlocal context_data
-        context_data = context
+        try:
+            if context is not None:
+                context_data = context
+            else:
+                context_data = {}
+                logger.warning("Received None context in global_search callback")
+        except Exception as e:
+            logger.error(f"Error in global_search context callback: {str(e)}")
+            context_data = {}
 
     local_callbacks = NoopQueryCallbacks()
     local_callbacks.on_context = on_context
     callbacks.append(local_callbacks)
 
-    async for chunk in global_search_streaming(
-        config=config,
-        entities=entities,
-        communities=communities,
-        community_reports=community_reports,
-        community_level=community_level,
-        dynamic_community_selection=dynamic_community_selection,
-        response_type=response_type,
-        query=query,
-        callbacks=callbacks,
-    ):
-        full_response += chunk
+    try:
+        async for chunk in global_search_streaming(
+            config=config,
+            entities=entities,
+            communities=communities,
+            community_reports=community_reports,
+            community_level=community_level,
+            dynamic_community_selection=dynamic_community_selection,
+            response_type=response_type,
+            query=query,
+            callbacks=callbacks,
+        ):
+            full_response += chunk
+    except Exception as e:
+        logger.error(f"Error in global_search_streaming: {str(e)}")
+        # Re-raise the exception but ensure context_data is set to something valid
+        if not context_data:
+            context_data = {}
+        raise
+    
     return full_response, context_data
 
 

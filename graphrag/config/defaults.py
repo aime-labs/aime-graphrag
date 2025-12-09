@@ -258,6 +258,7 @@ class LanguageModelDefaults:
     """Default values for language model."""
 
     api_key: None = None
+    email: None = None
     auth_type = AuthType.APIKey
     encoding_model: str = ""
     max_tokens: int | None = None

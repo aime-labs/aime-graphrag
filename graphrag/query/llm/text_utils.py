@@ -60,7 +60,7 @@ def try_parse_json_object(input: str, verbose: bool = True) -> tuple[str, dict]:
         result = json.loads(input)
     except json.JSONDecodeError:
         if verbose:
-            log.info("Warning: Error decoding faulty json, attempting repair")
+            log.debug("Warning: Error decoding faulty json, attempting repair")
 
     if result:
         return input, result
@@ -72,7 +72,7 @@ def try_parse_json_object(input: str, verbose: bool = True) -> tuple[str, dict]:
         input = "{" + match.group(1) + "}"
     else:
         if verbose:
-            log.warning("No JSON object found in input: %s", input)
+            log.debug("No JSON object found in input (first 100 chars): %s", input[:100])
         return input, {}
 
     # Clean up json string.
@@ -102,19 +102,19 @@ def try_parse_json_object(input: str, verbose: bool = True) -> tuple[str, dict]:
         result = json.loads(input)
     except json.JSONDecodeError:
         if verbose:
-            log.info("Attempting to repair JSON: %s", input)
+            log.debug("Attempting to repair JSON: %s", input[:10])
         # Fixup potentially malformed json string using json_repair.
         try:
             input = str(repair_json(json_str=input, return_objects=False))
             result = json.loads(input)
         except (json.JSONDecodeError, Exception) as e:
             if verbose:
-                log.exception("Failed to repair JSON: %s, error: %s", input, str(e))
+                log.debug("Failed to repair JSON: %s, error: %s", input[:100], str(e))
             return input, {}
     else:
         if not isinstance(result, dict):
             if verbose:
-                log.warning("Parsed result is not a dictionary: %s", type(result))
+                log.debug("Parsed result is not a dictionary: %s", type(result))
             return input, {}
         return input, result
 

@@ -27,6 +27,10 @@ class LanguageModelConfig(BaseModel):
         description="The API key to use for the LLM service.",
         default=language_model_defaults.api_key,
     )
+    email: str | None = Field(
+        description="The email/user to use for AIME API authentication.",
+        default=None,
+    )
 
     def _validate_api_key(self) -> None:
         """Validate the API key.

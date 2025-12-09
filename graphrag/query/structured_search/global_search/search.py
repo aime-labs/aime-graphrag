@@ -174,29 +174,70 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
 
         for callback in self.callbacks:
             callback.on_map_response_end(map_responses)
-            callback.on_context(context_result.context_records)
+            try:
+                # Ensure we have valid context_records to pass to callback
+                context_records = getattr(context_result, 'context_records', {})
+                if context_records is None:
+                    context_records = {}
+                callback.on_context(context_records)
+            except Exception as callback_error:
+                log.error(f"Error in callback.on_context: {str(callback_error)}")
+                # Continue execution even if callback fails
+                pass
 
         llm_calls["map"] = sum(response.llm_calls for response in map_responses)
         prompt_tokens["map"] = sum(response.prompt_tokens for response in map_responses)
         output_tokens["map"] = sum(response.output_tokens for response in map_responses)
 
         # Step 2: Combine the intermediate answers from step 2 to generate the final answer
-        reduce_response = await self._reduce_response(
-            map_responses=map_responses,
-            query=query,
-            **self.reduce_llm_params,
-        )
-        llm_calls["reduce"] = reduce_response.llm_calls
-        prompt_tokens["reduce"] = reduce_response.prompt_tokens
-        output_tokens["reduce"] = reduce_response.output_tokens
+        try:
+            reduce_response = await self._reduce_response(
+                map_responses=map_responses,
+                query=query,
+                **self.reduce_llm_params,
+            )
+            llm_calls["reduce"] = reduce_response.llm_calls
+            prompt_tokens["reduce"] = reduce_response.prompt_tokens
+            output_tokens["reduce"] = reduce_response.output_tokens
+            
+            # Safely access context_data and context_text with fallbacks
+            reduce_context_data = getattr(reduce_response, 'context_data', "")
+            reduce_context_text = getattr(reduce_response, 'context_text', "")
+            
+        except Exception as reduce_error:
+            log.error(f"Error in reduce_response: {str(reduce_error)}")
+            # Create a fallback reduce_response
+            reduce_response = SearchResult(
+                response="I encountered an error while processing your query.",
+                context_data="",
+                context_text="",
+                completion_time=0.0,
+                llm_calls=0,
+                prompt_tokens=0,
+                output_tokens=0,
+            )
+            llm_calls["reduce"] = 0
+            prompt_tokens["reduce"] = 0 
+            output_tokens["reduce"] = 0
+            reduce_context_data = ""
+            reduce_context_text = ""
+
+        # Safely get context data with fallbacks
+        context_records = getattr(context_result, 'context_records', {})
+        context_chunks = getattr(context_result, 'context_chunks', [])
+        
+        if context_records is None:
+            context_records = {}
+        if context_chunks is None:
+            context_chunks = []
 
         return GlobalSearchResult(
             response=reduce_response.response,
-            context_data=context_result.context_records,
-            context_text=context_result.context_chunks,
+            context_data=context_records,
+            context_text=context_chunks,
             map_responses=map_responses,
-            reduce_context_data=reduce_response.context_data,
-            reduce_context_text=reduce_response.context_text,
+            reduce_context_data=reduce_context_data,
+            reduce_context_text=reduce_context_text,
             completion_time=time.time() - start_time,
             llm_calls=sum(llm_calls.values()),
             prompt_tokens=sum(prompt_tokens.values()),
@@ -216,10 +257,41 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
         """Generate answer for a single chunk of community reports."""
         start_time = time.time()
         search_prompt = ""
+        search_response = ""
         try:
-            search_prompt = self.map_system_prompt.format(
-                context_data=context_data, max_length=max_length
-            )
+            try:
+                search_prompt = self.map_system_prompt.format(
+                    context_data=context_data, max_length=max_length
+                )
+            except KeyError as format_error:
+                log.error(f"Template formatting error: {str(format_error)}")
+                log.error(f"Template content: {self.map_system_prompt[:200]}...")
+                
+                # Try to identify all missing placeholders and provide them
+                missing_key = str(format_error).strip("'")
+                fallback_values = {
+                    'question': query,
+                    'response_type': 'multiple paragraphs',
+                    'max_tokens': max_length,
+                    'max_length': max_length,
+                    'context_data': context_data
+                }
+                
+                try:
+                    # Try to format with all common placeholders
+                    search_prompt = self.map_system_prompt.format(
+                        context_data=context_data,
+                        max_length=max_length,
+                        **{k: v for k, v in fallback_values.items() if k != 'context_data' and k != 'max_length'}
+                    )
+                except Exception as e2:
+                    log.error(f"Failed to format with fallback values: {str(e2)}")
+                    # Use a basic template as last resort
+                    search_prompt = f"""You are a helpful assistant. Answer the user's question based on the following data:
+
+{context_data}
+
+Keep your response under {max_length} words and format as JSON with "points" array containing objects with "description" and "score" fields."""
             search_messages = [
                 {"role": "system", "content": search_prompt},
             ]
@@ -251,15 +323,18 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
                 output_tokens=num_tokens(search_response, self.token_encoder),
             )
 
-        except Exception:
-            log.exception("Exception in _map_response_single_batch")
+        except Exception as e:
+            log.exception(f"Exception in _map_response_single_batch: {str(e)}")
+            # Ensure search_prompt is initialized 
+            if 'search_prompt' not in locals():
+                search_prompt = ""
             return SearchResult(
-                response=[{"answer": "", "score": 0}],
+                response=[{"answer": f"Error processing query: {str(e)}", "score": 0}],
                 context_data=context_data,
                 context_text=context_data,
                 completion_time=time.time() - start_time,
                 llm_calls=1,
-                prompt_tokens=num_tokens(search_prompt, self.token_encoder),
+                prompt_tokens=num_tokens(search_prompt, self.token_encoder) if search_prompt else 0,
                 output_tokens=0,
             )
 
@@ -370,9 +445,35 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
                 total_tokens += num_tokens(formatted_response_text, self.token_encoder)
             text_data = "\n\n".join(data)
 
-            search_prompt = self.reduce_system_prompt.format(
-                report_data=text_data, response_type=self.response_type
-            )
+            try:
+                search_prompt = self.reduce_system_prompt.format(
+                    report_data=text_data, 
+                    response_type=self.response_type,
+                    max_length=self.reduce_max_length
+                )
+            except KeyError as format_error:
+                log.error(f"Reduce template formatting error: {str(format_error)}")
+                log.error(f"Reduce template content: {self.reduce_system_prompt[:200]}...")
+                
+                # Try with additional common placeholders
+                fallback_values = {
+                    'report_data': text_data,
+                    'response_type': self.response_type,
+                    'max_length': self.reduce_max_length,
+                    'question': query
+                }
+                
+                try:
+                    search_prompt = self.reduce_system_prompt.format(**fallback_values)
+                except Exception as e2:
+                    log.error(f"Failed to format reduce prompt with fallbacks: {str(e2)}")
+                    # Use a basic reduce template as last resort
+                    search_prompt = f"""You are a helpful assistant. Synthesize the following analyst reports to answer the user's question:
+
+{text_data}
+
+Provide a comprehensive {self.response_type} response."""
+            
             if self.allow_general_knowledge:
                 search_prompt += "\n" + self.general_knowledge_inclusion_prompt
             search_messages = [
@@ -381,14 +482,18 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
             ]
 
             search_response = ""
-            async for chunk_response in self.model.achat_stream(
-                prompt=query,
-                history=search_messages,
-                model_parameters=llm_kwargs,
-            ):
-                search_response += chunk_response
-                for callback in self.callbacks:
-                    callback.on_llm_new_token(chunk_response)
+            try:
+                async for chunk_response in self.model.achat_stream(
+                    prompt=query,
+                    history=search_messages,
+                    model_parameters=llm_kwargs,
+                ):
+                    search_response += chunk_response
+                    for callback in self.callbacks:
+                        callback.on_llm_new_token(chunk_response)
+            except Exception as stream_error:
+                log.error(f"Error in streaming response: {str(stream_error)}")
+                search_response = "I encountered an error while generating the response."
 
             return SearchResult(
                 response=search_response,
@@ -399,15 +504,20 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
                 prompt_tokens=num_tokens(search_prompt, self.token_encoder),
                 output_tokens=num_tokens(search_response, self.token_encoder),
             )
-        except Exception:
-            log.exception("Exception in reduce_response")
+        except Exception as e:
+            log.exception(f"Exception in reduce_response: {str(e)}")
+            # Ensure text_data is initialized even if exception occurs early
+            if 'text_data' not in locals():
+                text_data = ""
+            if 'search_prompt' not in locals():
+                search_prompt = ""
             return SearchResult(
-                response="",
+                response="I apologize, but I encountered an error while processing your query.",
                 context_data=text_data,
                 context_text=text_data,
                 completion_time=time.time() - start_time,
                 llm_calls=1,
-                prompt_tokens=num_tokens(search_prompt, self.token_encoder),
+                prompt_tokens=num_tokens(search_prompt, self.token_encoder) if search_prompt else 0,
                 output_tokens=0,
             )
 

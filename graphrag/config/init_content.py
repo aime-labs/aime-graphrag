@@ -109,7 +109,7 @@ cluster_graph:
   max_cluster_size: {graphrag_config_defaults.cluster_graph.max_cluster_size}
 
 extract_claims:
-  enabled: false
+  enabled: true
   model_id: {graphrag_config_defaults.extract_claims.model_id}
   prompt: "prompts/extract_claims.txt"
   description: "{graphrag_config_defaults.extract_claims.description}"
@@ -129,7 +129,7 @@ umap:
   enabled: true # if true, will generate UMAP embeddings for nodes (embed_graph must also be enabled)
 
 snapshots:
-  graphml: truee
+  graphml: true
   embeddings: true
 
 ### Query settings ###
