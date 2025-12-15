@@ -1,0 +1,66 @@
+# Core dependencies
+asyncio
+typing-extensions>=4.0.0
+pydantic>=2.0.0
+
+# Data processing
+pandas>=1.5.0
+numpy>=1.21.0
+
+# Text processing and metrics
+rouge-score>=0.1.2
+scikit-learn>=1.0.0
+scipy>=1.7.0
+
+# NLP libraries for proper triple evaluation
+spacy>=3.7.0
+spacy-transformers>=1.2.0
+
+# Statistical analysis
+statsmodels>=0.14.0
+pingouin>=0.5.0
+
+# Configuration and serialization
+pyyaml>=6.0
+jsonschema>=4.0.0
+python-dotenv>=1.0.0
+
+# Resource management and async
+aiofiles>=23.0.0
+asyncio-pool>=0.6.0
+aiohttp>=3.8.0
+psutil>=5.9.0
+
+# Testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+hypothesis>=6.0.0
+
+# Reproducibility and versioning
+mlflow>=2.0.0
+dvc>=3.0.0
+
+# Monitoring and logging
+structlog>=23.0.0
+prometheus-client>=0.17.0
+
+# Optional: For enhanced visualization
+matplotlib>=3.5.0
+seaborn>=0.11.0
+
+# Optional: For advanced NLP metrics
+nltk>=3.7
+transformers>=4.20.0
+torch>=1.12.0
+bert-score>=0.3.13
+
+# Optional: For API clients
+requests>=2.28.0
+
+# Development tools
+black>=22.0.0
+flake8>=5.0.0
+mypy>=0.991
+pre-commit>=3.0.0 

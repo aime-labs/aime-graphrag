@@ -433,7 +433,9 @@ Keep your response under {max_length} words and format as JSON with "points" arr
                 formatted_response_data.append(
                     f"Importance Score: {point['score']}"  # type: ignore
                 )
-                formatted_response_data.append(point["answer"])  # type: ignore
+                # Some models occasionally return structured objects for `answer`.
+                # Coerce to string to avoid join() type errors.
+                formatted_response_data.append(str(point["answer"]))  # type: ignore
                 formatted_response_text = "\n".join(formatted_response_data)
                 if (
                     total_tokens
@@ -571,7 +573,9 @@ Provide a comprehensive {self.response_type} response."""
             formatted_response_data = [
                 f"----Analyst {point['analyst'] + 1}----",
                 f"Importance Score: {point['score']}",
-                point["answer"],
+                # Some models occasionally return structured objects for `answer`.
+                # Coerce to string to avoid join() type errors.
+                str(point["answer"]),
             ]
             formatted_response_text = "\n".join(formatted_response_data)
             if (

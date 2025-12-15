@@ -281,6 +281,29 @@ def extract_context_texts_from_graphrag(context_data: Any, max_text_length: int 
 class QueryRunner(ABC):
     """Abstract base class for query execution."""
     
+    @staticmethod
+    def _get_response_type_for_question(question_type: str) -> str:
+        """Map question_type to GraphRAG response_type.
+        
+        Args:
+            question_type: The type of question (e.g., 'Fact Retrieval', 'Complex Reasoning')
+            
+        Returns:
+            GraphRAG response_type string (e.g., 'Short Phrase', 'Multiple Paragraphs')
+        """
+        # Mapping from question types to appropriate response types
+        response_type_mapping = {
+            'Fact Retrieval': 'Short Phrase',
+            'Complex Reasoning': 'Multiple Paragraphs',
+            'Contextual Summarize': 'Multiple Paragraphs',
+            'Creative Generation': 'Multiple Paragraphs',
+            'Retrieval': 'Short Phrase',
+            'Pairwise Comparison': 'Single Paragraph',
+        }
+        
+        # Default to 'Single Paragraph' for unknown types
+        return response_type_mapping.get(question_type, 'Single Paragraph')
+    
     @abstractmethod
     async def run_query(self, question: str, context: Any = None, 
                        prompt_template: Optional[str] = None) -> Tuple[str, str, List[str]]:
@@ -307,11 +330,16 @@ class GraphRAGRunner(QueryRunner):
         if not GRAPHRAG_AVAILABLE:
             raise ImportError("GraphRAG is not available")
         
-        # Extract question text if question is a dict
+        # Extract question text and type if question is a dict
         if isinstance(question, dict):
             question_text = question.get('question', str(question))
+            question_type = question.get('question_type', 'Uncategorized')
         else:
             question_text = str(question)
+            question_type = 'Uncategorized'
+        
+        # Determine response_type based on question_type
+        response_type = self._get_response_type_for_question(question_type)
         
         try:
             # Prepare config - use custom prompt if provided
@@ -345,7 +373,7 @@ class GraphRAGRunner(QueryRunner):
                     relationships=self.index_files.get('relationships'),
                     covariates=self.index_files.get('covariates'),
                     community_level=2,
-                    response_type='Short Phrase',
+                    response_type=response_type,
                     query=question_text,
                 )
                 
@@ -427,11 +455,16 @@ class GlobalSearchRunner(QueryRunner):
         if not GRAPHRAG_AVAILABLE:
             raise ImportError("GraphRAG is not available")
         
-        # Extract question text if question is a dict
+        # Extract question text and type if question is a dict
         if isinstance(question, dict):
             question_text = question.get('question', str(question))
+            question_type = question.get('question_type', 'Uncategorized')
         else:
             question_text = str(question)
+            question_type = 'Uncategorized'
+        
+        # Determine response_type based on question_type
+        response_type = self._get_response_type_for_question(question_type)
         
         try:
             # Prepare config - use custom prompts if provided
@@ -469,7 +502,7 @@ class GlobalSearchRunner(QueryRunner):
                     community_reports=self.index_files.get('community_reports'),
                     community_level=2,
                     dynamic_community_selection=False,
-                    response_type='Short Phrase',
+                    response_type=response_type,
                     query=question_text,
                 )
                 
@@ -607,15 +640,20 @@ class RAGRunner(QueryRunner):
         OPTIMIZED: Runs basic_search only ONCE per query instead of twice.
         When a prompt_template is provided, we use it directly instead of 
         running once without and once with the template.
+        
+        Note: basic_search does not use response_type parameter directly, but we
+        extract question_type for consistency with other runners.
         """
         if not GRAPHRAG_AVAILABLE:
             raise ImportError("GraphRAG is not available")
         
-        # Extract question text if question is a dict
+        # Extract question text and type if question is a dict
         if isinstance(question, dict):
             question_text = question.get('question', str(question))
+            question_type = question.get('question_type', 'Uncategorized')
         else:
             question_text = str(question)
+            question_type = 'Uncategorized'
         
         try:
             # Prepare config - use custom prompt if provided

@@ -19,13 +19,21 @@ import numpy as np
 from collections import defaultdict
 from pathlib import Path
 import argparse
+import csv
 
 # Set style for all plots
 plt.style.use('seaborn-v0_8-whitegrid')
 
 # Configuration
-BENCH_RESULTS_DIR = "/workspace/Bench_resultsSamp"
-OUTPUT_DIR = "/workspace/benchmark_visualizations"
+# Support both host path and container path
+import socket
+hostname = socket.gethostname()
+if os.path.exists("/workspace/Final_Bench_Novel"):
+    BENCH_RESULTS_DIR = "/workspace/Final_Bench_Novel"
+    OUTPUT_DIR = "/workspace/Final_Bench_Novel/benchmark_visualizations"
+else:
+    BENCH_RESULTS_DIR = "/home/namit/workspace/Final_Bench_Novel"
+    OUTPUT_DIR = "/home/namit/workspace/Final_Bench_Novel/benchmark_visualizations"
 
 # Question types
 QUESTION_TYPES = [
@@ -226,7 +234,7 @@ def safe_count(value) -> int:
 
 
 def load_metrics_data(results_dir: str) -> dict:
-    """Load metrics.json from all model folders."""
+    """Load metrics_computed.json from all model folders."""
     data = {}
     
     if not os.path.exists(results_dir):
@@ -235,15 +243,20 @@ def load_metrics_data(results_dir: str) -> dict:
     
     for folder in sorted(os.listdir(results_dir)):
         folder_path = os.path.join(results_dir, folder)
-        metrics_file = os.path.join(folder_path, "metrics.json")
+        metrics_file = os.path.join(folder_path, "metrics_computed.json")
         
         if os.path.isdir(folder_path) and os.path.exists(metrics_file):
             try:
                 with open(metrics_file, 'r') as f:
-                    data[folder] = json.load(f)
-                print(f"✓ Loaded metrics from {folder}")
+                    metrics_data = json.load(f)
+                    # The file contains an array of results
+                    if isinstance(metrics_data, list):
+                        # Extract model name from folder (e.g., "Mistral_Novel" -> "Mistral")
+                        model_name = folder.replace('_Novel', '')
+                        data[model_name] = metrics_data
+                        print(f"  ✓ Loaded {len(metrics_data)} results from {folder}")
             except Exception as e:
-                print(f"✗ Error loading {metrics_file}: {e}")
+                print(f"  ✗ Error loading {metrics_file}: {e}")
     
     return data
 
@@ -339,6 +352,134 @@ def aggregate_by_question_type_method(data: dict) -> dict:
             current_metrics["dont_know_answers_count"] += safe_count(metrics.get("dont_know_answers_count", 0))
     
     return aggregated
+
+
+def export_overall_metrics_to_csv(aggregated_data: dict, methods: list, output_dir: str):
+    """Export overall aggregated metrics to CSV file."""
+    csv_path = os.path.join(output_dir, "overall_metrics.csv")
+    
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        
+        # Header
+        header = ['Model', 'Method', 'BERT_Score_F1', 'RAGAS_Score', 'RAGAS_Faithfulness', 
+                  'RAGAS_Context_Precision', 'RAGAS_Context_Recall', 'RAGAS_Answer_Relevance', 
+                  'Semantic_Similarity_Percentage']
+        writer.writerow(header)
+        
+        # Data rows
+        for model in sorted(aggregated_data.keys()):
+            for method in sorted(methods):
+                if method in aggregated_data[model]:
+                    metrics = aggregated_data[model][method]
+                    row = [
+                        model,
+                        method,
+                        f"{metrics.get('bert_score_f1', 0):.2f}",
+                        f"{metrics.get('ragas_score', 0):.2f}",
+                        f"{metrics.get('ragas_faithfulness', 0):.2f}",
+                        f"{metrics.get('ragas_context_precision', 0):.2f}",
+                        f"{metrics.get('ragas_context_recall', 0):.2f}",
+                        f"{metrics.get('ragas_answer_relevance', 0):.2f}",
+                        f"{metrics.get('semantic_similarity_percentage', 0):.2f}"
+                    ]
+                    writer.writerow(row)
+    
+    print(f"  💾 Saved: {csv_path}")
+
+
+def export_by_question_type_to_csv(by_question_type: dict, methods: list, output_dir: str):
+    """Export metrics by question type to CSV file."""
+    csv_path = os.path.join(output_dir, "metrics_by_question_type.csv")
+    
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        
+        # Header
+        header = ['Model', 'Question_Type', 'Method', 'BERT_Score_F1', 'RAGAS_Score', 
+                  'RAGAS_Faithfulness', 'RAGAS_Context_Precision', 'RAGAS_Context_Recall', 
+                  'RAGAS_Answer_Relevance', 'Correct_Answers', 'Wrong_Answers', 
+                  'Dont_Know_Answers', 'Total_Questions']
+        writer.writerow(header)
+        
+        # Data rows
+        for model in sorted(by_question_type.keys()):
+            for q_type in sorted(by_question_type[model].keys()):
+                for method in sorted(methods):
+                    if method in by_question_type[model][q_type]:
+                        metrics = by_question_type[model][q_type][method]
+                        
+                        # Calculate averages from lists
+                        avg_metrics = {}
+                        for key in ['bert_score_f1', 'ragas_score', 'ragas_faithfulness',
+                                    'ragas_context_precision', 'ragas_context_recall', 
+                                    'ragas_answer_relevance']:
+                            values = metrics.get(key, [])
+                            avg_metrics[key] = np.mean(values) if values else 0
+                        
+                        correct = metrics.get('correct_answers_count', 0)
+                        wrong = metrics.get('wrong_answers_count', 0)
+                        dont_know = metrics.get('dont_know_answers_count', 0)
+                        total = correct + wrong + dont_know
+                        
+                        row = [
+                            model,
+                            q_type,
+                            method,
+                            f"{avg_metrics['bert_score_f1']:.2f}",
+                            f"{avg_metrics['ragas_score']:.2f}",
+                            f"{avg_metrics['ragas_faithfulness']:.2f}",
+                            f"{avg_metrics['ragas_context_precision']:.2f}",
+                            f"{avg_metrics['ragas_context_recall']:.2f}",
+                            f"{avg_metrics['ragas_answer_relevance']:.2f}",
+                            int(correct),
+                            int(wrong),
+                            int(dont_know),
+                            int(total)
+                        ]
+                        writer.writerow(row)
+    
+    print(f"  💾 Saved: {csv_path}")
+
+
+def export_factual_accuracy_to_csv(by_question_type: dict, methods: list, output_dir: str):
+    """Export factual accuracy grade distribution to CSV file."""
+    csv_path = os.path.join(output_dir, "factual_accuracy_grades.csv")
+    
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        
+        # Header
+        header = ['Model', 'Question_Type', 'Method', 'Grade_A', 'Grade_B', 'Grade_C', 
+                  'Grade_D', 'Grade_F', 'Total_Graded']
+        writer.writerow(header)
+        
+        # Data rows
+        from collections import Counter
+        for model in sorted(by_question_type.keys()):
+            for q_type in sorted(by_question_type[model].keys()):
+                for method in sorted(methods):
+                    if method in by_question_type[model][q_type]:
+                        grades = by_question_type[model][q_type][method].get('factual_accuracy_grades', [])
+                        
+                        if grades:
+                            grade_counts = Counter(grades)
+                            total = len(grades)
+                            
+                            row = [
+                                model,
+                                q_type,
+                                method,
+                                grade_counts.get('A', 0),
+                                grade_counts.get('B', 0),
+                                grade_counts.get('C', 0),
+                                grade_counts.get('D', 0),
+                                grade_counts.get('F', 0),
+                                total
+                            ]
+                            writer.writerow(row)
+    
+    print(f"  💾 Saved: {csv_path}")
 
 
 def create_grouped_bar_chart(aggregated_data: dict, metric_name: str, methods: list, 
@@ -862,6 +1003,12 @@ def main():
     # Aggregate data
     overall_aggregated = aggregate_metrics_by_model_method(data)
     by_question_type = aggregate_by_question_type_method(data)
+    
+    # Export to CSV
+    print("\n💾 Exporting data to CSV...")
+    export_overall_metrics_to_csv(overall_aggregated, methods, output_dir)
+    export_by_question_type_to_csv(by_question_type, methods, output_dir)
+    export_factual_accuracy_to_csv(by_question_type, methods, output_dir)
     
     # 1. Summary Dashboard
     print("\n📊 Creating Summary Dashboard...")

@@ -33,6 +33,16 @@ def embed_graph(
     if config.use_lcc:
         graph = stable_largest_connected_component(graph)
 
+    # Remove isolated nodes (degree 0) before embedding to prevent ZeroDivisionError
+    # in node2vec transition probability normalization
+    isolated_nodes = [node for node, degree in graph.degree() if degree == 0]
+    if isolated_nodes:
+        graph.remove_nodes_from(isolated_nodes)
+
+    # Handle edge case where all nodes are isolated
+    if len(graph.nodes()) == 0:
+        return {}
+
     # create graph embedding using node2vec
     embeddings = embed_node2vec(
         graph=graph,

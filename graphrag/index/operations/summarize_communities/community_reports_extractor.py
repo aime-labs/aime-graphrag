@@ -120,6 +120,7 @@ class CommunityReportsExtractor:
                     
                     # Now try to parse as JSON
                     try:
+                        json_response = None
                         # If the response has a text attribute, use that, otherwise use the string representation
                         if hasattr(raw_response, 'text'):
                             response_text = raw_response.text

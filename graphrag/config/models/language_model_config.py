@@ -275,6 +275,10 @@ class LanguageModelConfig(BaseModel):
         description="The presence penalty to use for token generation.",
         default=language_model_defaults.presence_penalty,
     )
+    chat_output_format: str | None = Field(
+        description="Output format for chat responses (json, chatml, raw).",
+        default=None,
+    )
 
     def _validate_azure_settings(self) -> None:
         """Validate Azure-specific settings.

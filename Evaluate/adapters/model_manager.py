@@ -414,26 +414,23 @@ class ModelManager:
                     if fname == 'community_reports.parquet' and df is not None:
                         initial_count = len(df)
                         
-                        # Combine all error detection patterns to avoid double-counting
-                        # Most errors have both error title AND error content
-                        error_mask = pd.Series(False, index=df.index)
-                        
-                        # Check for error patterns in title
+                        # Filter by title - remove "Error Generating Report" entries
                         if 'title' in df.columns:
-                            error_mask |= df['title'].str.contains('Error Generating Report', na=False, case=False)
+                            error_title_mask = df['title'].str.contains('Error Generating Report', na=False, case=False)
+                            title_errors = error_title_mask.sum()
+                            df = df[~error_title_mask]
+                        else:
+                            title_errors = 0
                         
-                        # Check for error patterns in content (use correct column name)
-                        content_col = 'full_content' if 'full_content' in df.columns else 'content'
-                        if content_col in df.columns:
-                            error_mask |= df[content_col].str.contains('An error occurred:', na=False, case=False)
-                            error_mask |= df[content_col].str.contains('Report generation failed', na=False, case=False)
-                            error_mask |= df[content_col].str.contains('Lost connection while receiving progress', na=False, case=False)
-                            # Short error messages (less than 200 chars with "Error:")
-                            error_mask |= (df[content_col].str.contains('Error:', na=False, case=False) & 
-                                          (df[content_col].str.len() < 200))
-                        
-                        # Apply the combined filter
-                        df = df[~error_mask]
+                        # Filter by content - remove reports with error messages
+                        content_errors = 0
+                        if 'content' in df.columns:
+                            error_content_mask1 = df['content'].str.contains('An error occurred:', na=False, case=False)
+                            error_content_mask2 = df['content'].str.contains('Report generation failed', na=False, case=False)
+                            error_content_mask3 = df['content'].str.contains('Error:', na=False, case=False) & (df['content'].str.len() < 200)
+                            combined_mask = error_content_mask1 | error_content_mask2 | error_content_mask3
+                            content_errors = combined_mask.sum()
+                            df = df[~combined_mask]
                         
                         filtered_count = len(df)
                         error_count = initial_count - filtered_count
@@ -442,10 +439,11 @@ class ModelManager:
                             log_level = 'error' if error_rate > 10 else 'warning'
                             msg = (
                                 f"Filtered {error_count} error reports from community_reports "
-                                f"({filtered_count} remaining out of {initial_count}) - {error_rate:.1f}% corrupted"
+                                f"({filtered_count} remaining out of {initial_count}, {error_rate:.1f}% error rate). "
+                                f"Title errors: {title_errors}, Content errors: {content_errors}"
                             )
                             if log_level == 'error':
-                                self.logger.error(msg + " - HIGH ERROR RATE indicates indexing issues!")
+                                self.logger.error(msg + " - HIGH ERROR RATE may indicate indexing issues!")
                             else:
                                 self.logger.warning(msg)
                     

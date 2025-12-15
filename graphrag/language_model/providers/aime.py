@@ -77,11 +77,13 @@ class AimeAPIProvider(ChatModel, EmbeddingModel):
             self.model_name = config.model or model_name
             self.email = getattr(config, 'email', None) or email
             self.api_key = config.api_key or api_key
+            self.chat_output_format = getattr(config, 'chat_output_format', None)
         else:
             self.api_url = api_url or "https://api.aime.info/"
             self.model_name = model_name
             self.email = email
             self.api_key = api_key
+            self.chat_output_format = kwargs.get('chat_output_format', None)
 
         if not self.email or not self.api_key:
             raise ValueError("Email and API key are required for AIME API")
@@ -106,7 +108,7 @@ class AimeAPIProvider(ChatModel, EmbeddingModel):
                     api_server=api_url_clean,
                     endpoint_name=self.model_name,
                     user=self.email,
-                    key=self.api_key,
+                    api_key=self.api_key,
                 )
             else:
                 self.model_api = ModelAPI(
@@ -142,7 +144,18 @@ class AimeAPIProvider(ChatModel, EmbeddingModel):
             and self.model_api.session
             and not self.model_api.session.closed
         ):
-            asyncio.run(self.model_api.close_session())
+            try:
+                # Try to get the current event loop
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If loop is running, schedule the cleanup instead
+                    loop.create_task(self.model_api.close_session())
+                else:
+                    # If no loop is running, safe to use asyncio.run()
+                    asyncio.run(self.model_api.close_session())
+            except RuntimeError:
+                # No event loop available, skip cleanup
+                pass
 
     async def call_with_retries_async(
         self, func, *args, max_retries=5, base_delay=3.0, **kwargs
@@ -221,7 +234,7 @@ class AimeAPIProvider(ChatModel, EmbeddingModel):
                 self.model_api.session = aiohttp.ClientSession()
             self._session_token = await self.model_api.do_api_login_async(
                 user=self.email,
-                api_key=self.api_key
+                api_key=self.api_key,
             )
             self.model_api.client_session_auth_key = self._session_token
 
@@ -300,10 +313,15 @@ class AimeAPIProvider(ChatModel, EmbeddingModel):
             "top_k": int(model_params.get("top_k", kwargs.get("top_k", 40))),
             "top_p": float(model_params.get("top_p", kwargs.get("top_p", 0.9))),
             "temperature": float(model_params.get("temperature", kwargs.get("temperature", 0.1))),
-            "max_gen_tokens": int(model_params.get("max_gen_tokens", kwargs.get("max_gen_tokens", kwargs.get("max_tokens", 2000)))),
+            "max_gen_tokens": int(model_params.get("max_gen_tokens", kwargs.get("max_gen_tokens", kwargs.get("max_tokens", 3500)))),
             "wait_for_result": kwargs.get("wait_for_result", True),
             "client_session_auth_key": self._session_token,
         }
+        
+        # Add chat_output_format if specified (to avoid <think> tags in responses)
+        if self.chat_output_format:
+            base_params["chat_output_format"] = self.chat_output_format
+            log.debug(f"AIME achat - Setting chat_output_format to: {self.chat_output_format}")
         
         # Log the parameters being used for debugging
         log.debug(f"AIME achat - model_params from caller: {model_params}")
@@ -341,99 +359,112 @@ class AimeAPIProvider(ChatModel, EmbeddingModel):
 
         async with self._semaphore:
             output_generator = self.model_api.get_api_request_generator(base_params)
-            async for progress in output_generator:
-                if not isinstance(progress, dict):
-                    continue
+            
+            # Add 2-minute timeout to prevent indefinite hangs
+            async def process_api_response():
+                """Process API response with timeout protection."""
+                nonlocal text, usage, metrics
+                async for progress in output_generator:
+                    if not isinstance(progress, dict):
+                        continue
 
-                if not progress.get("success", False):
-                    error_msg = (
-                        progress.get("error")
-                        or progress.get("description")
-                        or "Unknown error"
-                    )
-                    log.warning(f"AIME API request failed: {error_msg}")
-                    # Don't immediately raise error, continue to see if we get any partial response
-                    continue
+                    if not progress.get("success", False):
+                        error_msg = (
+                            progress.get("error")
+                            or progress.get("description")
+                            or "Unknown error"
+                        )
+                        log.warning(f"AIME API request failed: {error_msg}")
+                        # Don't immediately raise error, continue to see if we get any partial response
+                        continue
 
-                job_state = progress.get("job_state")
+                    job_state = progress.get("job_state")
 
-                if job_state == "done":
-                    result_data = progress.get("result_data", {})
-                    log.debug(f"AIME API result_data: {result_data}")
-                    if isinstance(result_data, dict):
-                        # IMPORTANT: First check if there's an error in the response
-                        # The API may return 'error' key when request fails (e.g., context too large)
-                        if result_data.get("error"):
-                            error_msg = result_data.get("error")
-                            log.error(f"AIME API returned error in result_data: {error_msg}")
-                            # Don't continue processing, we know this request failed
-                            # Fall through to the warning handler with empty text
-                            text = ""
-                        else:
-                            text = result_data.get("text", "")
-                            # Check if text is empty and try alternative fields
-                            if not text:
-                                # Try alternative field names that might contain the response
-                                text = (
-                                    result_data.get("output", "") or
-                                    result_data.get("response", "") or
-                                    result_data.get("content", "") or
-                                    str(result_data.get("result", ""))
-                                )
-                                log.debug(f"Text was empty, tried alternatives. Found: {text[:40] if text else 'None'}")
-                            
-                        # If still no text, try to extract from nested structures
-                        if not text and result_data:
-                            # Check if result_data itself contains the text
-                            if "text" in str(result_data).lower():
-                                # Try to extract text from string representation
-                                # IMPORTANT: Exclude known metadata keys that should NOT be used as text
-                                # These are API response metadata fields, not actual content
-                                metadata_keys = {
-                                    'job_id', 'ep_version', 'error', 'auth', 
-                                    'worker_interface_version', 'start_time', 'start_time_compute',
-                                    'arrival_time', 'finished_time', 'result_received_time',
-                                    'result_sent_time', 'model_name', 'pending_duration',
-                                    'preprocessing_duration', 'success', 'job_state',
-                                    'queue_position', 'estimate', 'progress'
-                                }
-                                text_candidates = [v for k, v in result_data.items() 
-                                                 if isinstance(v, str) and len(v) > 10 
-                                                 and k.lower() not in metadata_keys]
-                                if text_candidates:
-                                    text = text_candidates[0]
-                                    log.debug(f"Extracted text from candidates: {text[:40]}")
-                                    
-                        metrics = {
-                            "num_generated_tokens": result_data.get(
-                                "num_generated_tokens"
-                            ),
-                            "compute_duration": result_data.get("compute_duration"),
-                            "total_duration": result_data.get("total_duration"),
-                            "prompt_length": result_data.get("prompt_length"),
-                            "max_seq_len": result_data.get("max_seq_len"),
-                            "model_name": result_data.get("model_name"),
-                            "worker_interface_version": result_data.get(
-                                "worker_interface_version"
-                            ),
-                        }
-                        usage = {
-                            "prompt_tokens": result_data.get("prompt_length", 0),
-                            "completion_tokens": result_data.get(
-                                "num_generated_tokens", 0
-                            ),
-                            "total_tokens": result_data.get("prompt_length", 0)
-                            + result_data.get("num_generated_tokens", 0),
-                        }
-                        break
-                    else:
-                        # Handle non-dict result_data
-                        if isinstance(result_data, str) and result_data.strip():
-                            text = result_data
-                            log.debug(f"Using string result_data as text: {text[:40]}")
-                            usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-                            metrics = {}
+                    if job_state == "done":
+                        result_data = progress.get("result_data", {})
+                        log.debug(f"AIME API result_data: {result_data}")
+                        if isinstance(result_data, dict):
+                            # IMPORTANT: First check if there's an error in the response
+                            # The API may return 'error' key when request fails (e.g., context too large)
+                            if result_data.get("error"):
+                                error_msg = result_data.get("error")
+                                log.error(f"AIME API returned error in result_data: {error_msg}")
+                                # Don't continue processing, we know this request failed
+                                # Fall through to the warning handler with empty text
+                                text = ""
+                            else:
+                                text = result_data.get("text", "")
+                                # Check if text is empty and try alternative fields
+                                if not text:
+                                    # Try alternative field names that might contain the response
+                                    text = (
+                                        result_data.get("output", "") or
+                                        result_data.get("response", "") or
+                                        result_data.get("content", "") or
+                                        str(result_data.get("result", ""))
+                                    )
+                                    log.debug(f"Text was empty, tried alternatives. Found: {text[:40] if text else 'None'}")
+                                
+                            # If still no text, try to extract from nested structures
+                            if not text and result_data:
+                                # Check if result_data itself contains the text
+                                if "text" in str(result_data).lower():
+                                    # Try to extract text from string representation
+                                    # IMPORTANT: Exclude known metadata keys that should NOT be used as text
+                                    # These are API response metadata fields, not actual content
+                                    metadata_keys = {
+                                        'job_id', 'ep_version', 'error', 'auth', 
+                                        'worker_interface_version', 'start_time', 'start_time_compute',
+                                        'arrival_time', 'finished_time', 'result_received_time',
+                                        'result_sent_time', 'model_name', 'pending_duration',
+                                        'preprocessing_duration', 'success', 'job_state',
+                                        'queue_position', 'estimate', 'progress'
+                                    }
+                                    text_candidates = [v for k, v in result_data.items() 
+                                                     if isinstance(v, str) and len(v) > 10 
+                                                     and k.lower() not in metadata_keys]
+                                    if text_candidates:
+                                        text = text_candidates[0]
+                                        log.debug(f"Extracted text from candidates: {text[:40]}")
+                                        
+                            metrics = {
+                                "num_generated_tokens": result_data.get(
+                                    "num_generated_tokens"
+                                ),
+                                "compute_duration": result_data.get("compute_duration"),
+                                "total_duration": result_data.get("total_duration"),
+                                "prompt_length": result_data.get("prompt_length"),
+                                "max_seq_len": result_data.get("max_seq_len"),
+                                "model_name": result_data.get("model_name"),
+                                "worker_interface_version": result_data.get(
+                                    "worker_interface_version"
+                                ),
+                            }
+                            usage = {
+                                "prompt_tokens": result_data.get("prompt_length", 0),
+                                "completion_tokens": result_data.get(
+                                    "num_generated_tokens", 0
+                                ),
+                                "total_tokens": result_data.get("prompt_length", 0)
+                                + result_data.get("num_generated_tokens", 0),
+                            }
                             break
+                        else:
+                            # Handle non-dict result_data
+                            if isinstance(result_data, str) and result_data.strip():
+                                text = result_data
+                                log.debug(f"Using string result_data as text: {text[:40]}")
+                                usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                                metrics = {}
+                                break
+            
+            # Execute with 3-minute timeout
+            try:
+                await asyncio.wait_for(process_api_response(), timeout=180)
+            except asyncio.TimeoutError:
+                log.error("AIME API timeout: No response within 180 seconds")
+                # Use fallback response
+                text = ""
 
         if not text:
             log.warning("No response text received from AIME API, using fallback")
@@ -588,10 +619,15 @@ class AimeAPIProvider(ChatModel, EmbeddingModel):
             "top_k": int(model_params.get("top_k", kwargs.get("top_k", 40))),
             "top_p": float(model_params.get("top_p", kwargs.get("top_p", 0.9))),
             "temperature": float(model_params.get("temperature", kwargs.get("temperature", 0.1))),
-            "max_gen_tokens": int(model_params.get("max_gen_tokens", kwargs.get("max_gen_tokens", kwargs.get("max_tokens", 2000)))),
+            "max_gen_tokens": int(model_params.get("max_gen_tokens", kwargs.get("max_gen_tokens", kwargs.get("max_tokens", 3500)))),
             "wait_for_result": False,
             "client_session_auth_key": self._session_token,
         }
+        
+        # Add chat_output_format if specified (to avoid <think> tags in gpt-oss responses)
+        if self.chat_output_format:
+            params["chat_output_format"] = self.chat_output_format
+            log.info(f"AIME achat_stream - Setting chat_output_format to: {self.chat_output_format}")
         
         # Log the parameters being used for debugging
         log.info(f"AIME achat_stream - model_params from caller: {model_params}")
@@ -705,12 +741,19 @@ class AimeAPIProvider(ChatModel, EmbeddingModel):
                     "connection" in error_str or
                     "disconnected" in error_str or
                     "server disconnected" in error_str or
+                    "write request body" in error_str or
                     "no free queue slot" in error_str or
                     "queue slot" in error_str or
                     "status code: 400" in error_str or
                     "status code: 429" in error_str or
                     "status code: 503" in error_str or
-                    isinstance(e, (BrokenPipeError, ServerDisconnectedError, aiohttp.ServerDisconnectedError))
+                    isinstance(e, (
+                        BrokenPipeError,
+                        ConnectionResetError,
+                        aiohttp.ClientOSError,
+                        ServerDisconnectedError,
+                        aiohttp.ServerDisconnectedError,
+                    ))
                 )
                 
                 if is_retryable and retry_attempt < max_stream_retries - 1:

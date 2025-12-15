@@ -97,7 +97,8 @@ class Evaluator:
                 'temperature': self.config.llm_temperature,
                 'max_tokens': self.config.llm_max_tokens,
                 'top_p': self.config.llm_top_p,
-                'top_k': self.config.llm_top_k
+                'top_k': self.config.llm_top_k,
+                'api_timeout': self.config.llm_api_timeout,
             }
             
             self.llm_adapter = LLMAdapterFactory.create_adapter(
@@ -115,8 +116,13 @@ class Evaluator:
                     judge_model_name, judge_api_base, judge_api_key, self.config.project_path
                 )
                 if self.judge_llm_instance:
+                    default_judge_params = default_llm_params.copy()
+                    if self.config.judge_llm_max_tokens is not None:
+                        default_judge_params['max_tokens'] = self.config.judge_llm_max_tokens
+                    if self.config.judge_llm_api_timeout is not None:
+                        default_judge_params['api_timeout'] = self.config.judge_llm_api_timeout
                     self.judge_llm_adapter = LLMAdapterFactory.create_adapter(
-                        self.judge_llm_instance, self.logger.logger, default_params=default_llm_params
+                        self.judge_llm_instance, self.logger.logger, default_params=default_judge_params
                     )
                     self.logger.logger.info(f"Initialized judge LLM: {judge_model_name}")
                 else:

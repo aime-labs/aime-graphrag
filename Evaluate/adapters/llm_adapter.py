@@ -47,19 +47,35 @@ class OpenAIAdapter(LLMAdapter):
         self.logger = logger
     
     async def ainvoke(self, prompt: str, config: Optional[Dict[str, Any]] = None) -> Any:
-        """Invoke LLM with prompt."""
+        """Invoke LLM with prompt using a configurable timeout."""
         try:
-            response = await self.llm.ainvoke(prompt, config=config or {})
+            config = config or {}
+            api_timeout = config.get("api_timeout", 180)
+            response = await asyncio.wait_for(
+                self.llm.ainvoke(prompt, config=config),
+                timeout=api_timeout
+            )
             return response
+        except asyncio.TimeoutError:
+            self.logger.error(f"OpenAI API timeout after {api_timeout} seconds")
+            raise Exception(f"OpenAI API timeout: No response within {api_timeout} seconds")
         except Exception as e:
             error_msg = handle_llm_api_error(e, self.logger)
             raise Exception(error_msg)
     
     async def achat(self, prompt: str) -> Any:
-        """Chat with LLM."""
+        """Chat with LLM with a configurable timeout."""
         try:
-            response = await self.llm.achat(prompt)
+            # Keep compatibility with callers that don't pass config here.
+            api_timeout = 180
+            response = await asyncio.wait_for(
+                self.llm.achat(prompt),
+                timeout=api_timeout
+            )
             return response
+        except asyncio.TimeoutError:
+            self.logger.error(f"OpenAI API chat timeout after {api_timeout} seconds")
+            raise Exception(f"OpenAI API chat timeout: No response within {api_timeout} seconds")
         except Exception as e:
             error_msg = handle_llm_api_error(e, self.logger)
             raise Exception(error_msg)
@@ -71,9 +87,10 @@ class AIMEAPIAdapter(LLMAdapter):
     # Default LLM parameters for reproducible benchmarking
     # These can be overridden via constructor or config dict in ainvoke()
     DEFAULT_TEMPERATURE = 0.0  # Deterministic for benchmarking
-    DEFAULT_MAX_TOKENS = 2500
+    DEFAULT_MAX_TOKENS = 3500
     DEFAULT_TOP_P = 1.0        # No filtering for deterministic mode
     DEFAULT_TOP_K = 40
+    DEFAULT_API_TIMEOUT = 180
     
     def __init__(self, model_api: Any, logger: logging.Logger, user: Optional[str] = None, 
                  api_key: Optional[str] = None, default_params: Optional[Dict[str, Any]] = None):
@@ -88,6 +105,7 @@ class AIMEAPIAdapter(LLMAdapter):
         self._max_tokens = self._default_params.get('max_tokens', self.DEFAULT_MAX_TOKENS)
         self._top_p = self._default_params.get('top_p', self.DEFAULT_TOP_P)
         self._top_k = self._default_params.get('top_k', self.DEFAULT_TOP_K)
+        self._api_timeout = int(self._default_params.get('api_timeout', self.DEFAULT_API_TIMEOUT))
         
         # Store credentials for login - check multiple sources in order of priority:
         # 1. Explicit parameters passed to constructor
@@ -174,6 +192,15 @@ class AIMEAPIAdapter(LLMAdapter):
             try:
                 await self._ensure_login()
                 
+                config = config or {}
+
+                # Optional JSON-mode prompt constraint (AIME server does not expose an OpenAI-style response_format)
+                if config.get("json") is True:
+                    prompt = (
+                        prompt
+                        + "\n\nIMPORTANT: Respond ONLY with valid JSON. Do not include any other text."
+                    )
+
                 # Create chat context using the recommended AIME API format
                 assistant_name = "GraphRAG Assistant"
                 chat_context = [
@@ -267,56 +294,78 @@ class AIMEAPIAdapter(LLMAdapter):
                 output_generator = self.model_api.get_api_request_generator(params)
                 
                 answer = None
-                async for progress in output_generator:
-                    # Only handle error and final response, skip progress update prints
-                    if isinstance(progress, dict) and progress.get('job_state') == 'error':
-                        error_description = progress.get('error_description', 'Unknown API error')
-                        error_data = progress.get('error_data', {})
-                        self.logger.error("=" * 80)
-                        self.logger.error("AIME API ERROR RESPONSE")
-                        self.logger.error("=" * 80)
-                        self.logger.error(f"Error Description: {error_description}")
-                        self.logger.error(f"Error Data: {json.dumps(error_data, indent=2)}")
-                        self.logger.error(f"Full Progress Dict: {json.dumps(progress, indent=2)}")
-                        self.logger.error("=" * 80)
-                        raise Exception(f"AIME API error: {error_description}")
-                    # Extract result when job is done
-                    if isinstance(progress, dict) and progress.get('job_state') == 'done':
-                        result_data = progress.get('result_data', {})
-                        self.logger.info("=" * 80)
-                        self.logger.info("AIME API RESPONSE (Job Done)")
-                        self.logger.info("=" * 80)
-                        self.logger.info(f"Result Data Keys: {list(result_data.keys())}")
-                        
-                        # IMPORTANT: Check for error in result_data first
-                        # The API returns 'error' key (no 'text') when request fails (e.g., context too large)
-                        if result_data.get('error'):
-                            error_msg = result_data.get('error')
-                            self.logger.error(f"✗ AIME API returned error in result_data: {error_msg}")
-                            self.logger.error("=" * 80)
-                            # Raise with specific error message from API
-                            raise Exception(f"AIME API error: {error_msg}")
-                        
-                        answer = (
-                            result_data.get('text') or 
-                            result_data.get('output') or 
-                            result_data.get('generated_text')
-                        )
-                        if not answer and result_data:
-                            for key in ['response', 'completion', 'result']:
-                                if key in result_data and isinstance(result_data[key], str):
-                                    answer = result_data[key]
-                                    self.logger.info(f"Extracted answer from key: {key}")
-                                    break
-                        if answer:
-                            answer_preview = answer[:200] + "..." if len(answer) > 200 else answer
-                            self.logger.info(f"✓ Answer received ({len(answer)} characters)")
-                            self.logger.info(f"Answer preview: {answer_preview}")
-                            self.logger.info("=" * 80)
-                            break
-                        else:
-                            self.logger.error("✗ No answer found in result_data")
-                            self.logger.info("=" * 80)
+                api_timeout = int(config.get("api_timeout", self._api_timeout))
+                try:
+                    async def process_api_response():
+                        """Process API response with proper error handling."""
+                        nonlocal answer
+                        async for progress in output_generator:
+                            # Only handle error and final response, skip progress update prints
+                            if isinstance(progress, dict) and progress.get('job_state') == 'error':
+                                error_description = progress.get('error_description', 'Unknown API error')
+                                error_data = progress.get('error_data', {})
+                                self.logger.error("=" * 80)
+                                self.logger.error("AIME API ERROR RESPONSE")
+                                self.logger.error("=" * 80)
+                                self.logger.error(f"Error Description: {error_description}")
+                                self.logger.error(f"Error Data: {json.dumps(error_data, indent=2)}")
+                                self.logger.error(f"Full Progress Dict: {json.dumps(progress, indent=2)}")
+                                self.logger.error("=" * 80)
+                                raise Exception(f"AIME API error: {error_description}")
+                            # Extract result when job is done
+                            if isinstance(progress, dict) and progress.get('job_state') == 'done':
+                                result_data = progress.get('result_data', {})
+                                self.logger.info("=" * 80)
+                                self.logger.info("AIME API RESPONSE (Job Done)")
+                                self.logger.info("=" * 80)
+                                self.logger.info(f"Result Data Keys: {list(result_data.keys())}")
+                                
+                                # IMPORTANT: Check for error in result_data first
+                                # The API returns 'error' key (no 'text') when request fails (e.g., context too large)
+                                if result_data.get('error'):
+                                    error_msg = result_data.get('error')
+                                    self.logger.error(f"✗ AIME API returned error in result_data: {error_msg}")
+                                    self.logger.error("=" * 80)
+                                    # Raise with specific error message from API
+                                    raise Exception(f"AIME API error: {error_msg}")
+                                
+                                answer = (
+                                    result_data.get('text') or 
+                                    result_data.get('output') or 
+                                    result_data.get('generated_text')
+                                )
+                                if not answer and result_data:
+                                    for key in ['response', 'completion', 'result']:
+                                        if key in result_data and isinstance(result_data[key], str):
+                                            answer = result_data[key]
+                                            self.logger.info(f"Extracted answer from key: {key}")
+                                            break
+                                if answer:
+                                    answer_preview = answer[:200] + "..." if len(answer) > 200 else answer
+                                    self.logger.info(f"✓ Answer received ({len(answer)} characters)")
+                                    self.logger.info(f"Answer preview: {answer_preview}")
+                                    self.logger.info("=" * 80)
+                                    return  # Exit the function successfully
+                                else:
+                                    self.logger.error("✗ No answer found in result_data")
+                                    self.logger.info("=" * 80)
+                    
+                    # Execute the API call with timeout
+                    await asyncio.wait_for(process_api_response(), timeout=api_timeout)
+                    
+                except asyncio.TimeoutError:
+                    self.logger.error("=" * 80)
+                    self.logger.error(f"AIME API TIMEOUT ERROR (Attempt {attempt + 1}/{max_retries})")
+                    self.logger.error("=" * 80)
+                    self.logger.error(f"API call exceeded {api_timeout} seconds timeout")
+                    self.logger.error("=" * 80)
+                    if attempt < max_retries - 1:
+                        self.logger.warning(f"Timeout detected, retrying in {retry_delay} seconds...")
+                        await asyncio.sleep(retry_delay)
+                        continue
+                    else:
+                        raise Exception(f"AIME API timeout after {max_retries} attempts: No response within {api_timeout} seconds")
+                
                 if not answer:
                     self.logger.error("=" * 80)
                     self.logger.error("AIME API ERROR: No Response")
@@ -332,6 +381,10 @@ class AIMEAPIAdapter(LLMAdapter):
                 
                 self.logger.info("✓ Request completed successfully")
                 return MockResponse(answer)
+                
+            except asyncio.TimeoutError:
+                # Already handled above, re-raise to be caught by outer exception handlers
+                raise
                 
             except (BrokenPipeError, ConnectionError, ConnectionRefusedError, 
                     AttributeError, OSError) as e:

@@ -33,10 +33,17 @@ class EvaluationConfig:
     # LLM parameters for reproducible benchmarking
     # CRITICAL: These ensure consistent behavior across all LLM adapters for fair comparison
     llm_temperature: float = 0.0  # Use 0.0 for deterministic outputs during benchmarking
-    llm_max_tokens: int = 2500    # Maximum tokens for generated responses
+    llm_max_tokens: int = 3500    # Maximum tokens for generated responses
     llm_top_p: float = 1.0        # Nucleus sampling (1.0 = no filtering for deterministic mode)
     llm_top_k: int = 40           # Top-k sampling parameter
     reproducible_mode: bool = True  # When True, forces temperature=0 for reproducibility
+
+    # API timeout controls (seconds)
+    llm_api_timeout: int = 180
+
+    # Optional judge-specific overrides
+    judge_llm_max_tokens: Optional[int] = None
+    judge_llm_api_timeout: Optional[int] = None
     
     # Context size limits for llm_with_context method
     # These prevent API payload errors with large documents
@@ -92,9 +99,12 @@ class EvaluationConfig:
             pairwise_evaluation=getattr(args, 'pairwise', False),
             # LLM parameters for reproducible benchmarking
             llm_temperature=getattr(args, 'llm_temperature', 0.0),
-            llm_max_tokens=getattr(args, 'llm_max_tokens', 2500),
+            llm_max_tokens=getattr(args, 'llm_max_tokens', 3500),
             llm_top_p=getattr(args, 'llm_top_p', 1.0),
-            reproducible_mode=getattr(args, 'reproducible_mode', True)
+            reproducible_mode=getattr(args, 'reproducible_mode', True),
+            llm_api_timeout=getattr(args, 'llm_api_timeout', 180),
+            judge_llm_max_tokens=getattr(args, 'judge_llm_max_tokens', None),
+            judge_llm_api_timeout=getattr(args, 'judge_llm_api_timeout', None)
         )
     
     def validate(self) -> List[str]:

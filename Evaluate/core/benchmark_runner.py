@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional, Set
 from pathlib import Path
 import logging
+from collections import defaultdict
 
 from config.evaluation_config import EvaluationConfig
 from utils.logging_utils import EvaluationLogger
@@ -65,10 +66,12 @@ class BenchmarkRunner:
         self.query_log: List[Dict[str, Any]] = []  # Track query execution logs
         self.resource_monitor = ResourceMonitor(logger.logger)
         
-        # Checkpointing support
+        # Checkpointing support with enhanced granular tracking
         self.checkpoint_file = Path(config.output_dir) / "benchmark_checkpoint.json"
         self.checkpoint_interval = 10  # Save checkpoint every N tasks
         self.processed_tasks: set = set()  # Track completed (question_id, method) pairs
+        # Enhanced checkpoint metadata for better tracking and debugging
+        self.checkpoint_metadata: Dict[str, Dict[str, Any]] = {}  # Maps task_id to metadata
     
     async def initialize(self):
         """Initialize the benchmark runner with models and data."""
@@ -96,7 +99,8 @@ class BenchmarkRunner:
                 'temperature': self.config.llm_temperature,
                 'max_tokens': self.config.llm_max_tokens,
                 'top_p': self.config.llm_top_p,
-                'top_k': self.config.llm_top_k
+                'top_k': self.config.llm_top_k,
+                'api_timeout': self.config.llm_api_timeout,
             }
             
             self.llm_adapter = LLMAdapterFactory.create_adapter(
@@ -213,10 +217,20 @@ class BenchmarkRunner:
                             self.benchmark_results.append(error_result)
                         elif isinstance(result, dict):
                             self.benchmark_results.append(result)
-                            # Track completed task for checkpoint
+                            # Track completed task for checkpoint with enhanced metadata
                             if task_idx < len(task_info):
                                 q_type, method, task_id = task_info[task_idx]
                                 self.processed_tasks.add(task_id)
+                                # Store enhanced checkpoint metadata
+                                self.checkpoint_metadata[task_id] = {
+                                    'question_type': q_type,
+                                    'method': method,
+                                    'question_id': result.get('id', 'unknown'),
+                                    'source': result.get('source', 'unknown'),
+                                    'timestamp': result.get('timestamp', datetime.now(timezone.utc).isoformat()),
+                                    'contexts_count': len(result.get('contexts', [])),
+                                    'answer_length': len(result.get('final_answer', ''))
+                                }
                                 # Log progress for successful results
                                 self.logger.log_evaluation_progress(completed + i + 1, total_tasks, q_type, method)
                     
@@ -470,36 +484,112 @@ class BenchmarkRunner:
         return self.benchmark_results.copy()
     
     def _save_checkpoint(self):
-        """Save checkpoint with progress information."""
+        """Save checkpoint with enhanced granular progress tracking."""
         try:
+            # Build metadata list from checkpoint_metadata dictionary
+            metadata_list = []
+            for task_id, meta in self.checkpoint_metadata.items():
+                metadata_list.append({
+                    'task_id': task_id,
+                    'question_type': meta.get('question_type', 'unknown'),
+                    'method': meta.get('method', 'unknown'),
+                    'question_id': meta.get('question_id', 'unknown'),
+                    'source': meta.get('source', 'unknown'),
+                    'timestamp': meta.get('timestamp', datetime.now(timezone.utc).isoformat()),
+                    'contexts_count': meta.get('contexts_count', 0),
+                    'answer_length': meta.get('answer_length', 0)
+                })
+            
+            # Group by different dimensions for analysis
+            by_question_type = defaultdict(list)
+            by_method = defaultdict(list)
+            by_source = defaultdict(list)
+            
+            for meta in metadata_list:
+                by_question_type[meta['question_type']].append(meta['task_id'])
+                by_method[meta['method']].append(meta['task_id'])
+                by_source[meta['source']].append(meta['task_id'])
+            
             checkpoint_data = {
                 'timestamp': datetime.now(timezone.utc).isoformat(),
                 'processed_tasks': list(self.processed_tasks),
-                'total_completed': len(self.benchmark_results)
+                'total_completed': len(self.benchmark_results),
+                # Enhanced granular tracking
+                'metadata': metadata_list,
+                'summary_by_question_type': {k: len(v) for k, v in by_question_type.items()},
+                'summary_by_method': {k: len(v) for k, v in by_method.items()},
+                'summary_by_source': {k: len(v) for k, v in by_source.items()},
+                'error_count': len([r for r in self.benchmark_results if r.get('error_message')])
             }
             with open(self.checkpoint_file, 'w') as f:
                 json.dump(checkpoint_data, f, indent=2)
-            self.logger.logger.debug(f"Checkpoint saved: {len(self.processed_tasks)} tasks processed")
+            self.logger.logger.debug(
+                f"Checkpoint saved: {len(self.processed_tasks)} tasks processed "
+                f"({checkpoint_data['error_count']} errors)"
+            )
         except Exception as e:
             self.logger.logger.warning(f"Failed to save checkpoint: {str(e)}")
     
     def _load_checkpoint(self):
-        """Load checkpoint to resume computation."""
+        """Load checkpoint with enhanced granular tracking to resume computation."""
         try:
             with open(self.checkpoint_file, 'r') as f:
                 checkpoint_data = json.load(f)
             
             self.processed_tasks = set(checkpoint_data.get('processed_tasks', []))
             
+            # Load enhanced metadata if available
+            if 'metadata' in checkpoint_data:
+                for meta in checkpoint_data['metadata']:
+                    task_id = meta.get('task_id', '')
+                    if task_id:
+                        self.checkpoint_metadata[task_id] = {
+                            'question_type': meta.get('question_type', 'unknown'),
+                            'method': meta.get('method', 'unknown'),
+                            'question_id': meta.get('question_id', 'unknown'),
+                            'source': meta.get('source', 'unknown'),
+                            'timestamp': meta.get('timestamp', 'unknown'),
+                            'contexts_count': meta.get('contexts_count', 0),
+                            'answer_length': meta.get('answer_length', 0)
+                        }
+                self.logger.logger.info(f"Loaded metadata for {len(self.checkpoint_metadata)} processed tasks")
+            
             # Try to load intermediate results if they exist
             intermediate_path = Path(self.config.output_dir) / "benchmark_raw_results.json"
             if intermediate_path.exists():
                 with open(intermediate_path, 'r') as f:
                     self.benchmark_results = json.load(f)
+                
+                # Rebuild checkpoint_metadata from benchmark_results if not loaded from checkpoint
+                if not self.checkpoint_metadata:
+                    for result in self.benchmark_results:
+                        question_id = result.get('id', 'unknown')
+                        method = result.get('method', 'unknown')
+                        task_id = f"{question_id}_{method}"
+                        if task_id in self.processed_tasks:
+                            self.checkpoint_metadata[task_id] = {
+                                'question_type': result.get('question_type', 'unknown'),
+                                'method': method,
+                                'question_id': question_id,
+                                'source': result.get('source', 'unknown'),
+                                'timestamp': result.get('timestamp', 'unknown'),
+                                'contexts_count': len(result.get('contexts', [])),
+                                'answer_length': len(result.get('final_answer', ''))
+                            }
+                
                 self.logger.logger.info(f"Loaded {len(self.benchmark_results)} benchmark results from checkpoint")
             
             checkpoint_time = checkpoint_data.get('timestamp', 'unknown')
             self.logger.logger.info(f"Checkpoint loaded from {checkpoint_time}")
+            
+            # Log enhanced summary information
+            if 'summary_by_question_type' in checkpoint_data:
+                self.logger.logger.info(f"  By question type: {checkpoint_data['summary_by_question_type']}")
+            if 'summary_by_method' in checkpoint_data:
+                self.logger.logger.info(f"  By method: {checkpoint_data['summary_by_method']}")
+            if 'error_count' in checkpoint_data:
+                self.logger.logger.info(f"  Total errors: {checkpoint_data['error_count']}")
+            
             self.logger.logger.info(f"Resuming with {len(self.processed_tasks)} completed tasks")
         except Exception as e:
             self.logger.logger.error(f"Failed to load checkpoint: {str(e)}")

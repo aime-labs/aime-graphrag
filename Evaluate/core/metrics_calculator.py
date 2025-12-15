@@ -75,10 +75,13 @@ class MetricsCalculator:
         self.computed_metrics: List[Dict[str, Any]] = []
         self.metrics_cache_usage = {'hits': 0, 'misses': 0}
         
-        # Checkpointing support
+        # Checkpointing support with enhanced granular tracking
         self.checkpoint_file = Path(config.output_dir) / "metrics_checkpoint.json"
         self.checkpoint_interval = 10  # Save checkpoint every N tasks
-        self.processed_result_ids: Set[str] = set()  # Track completed result IDs
+        # Track completed (result_id, method) pairs to handle multiple methods per result
+        self.processed_result_keys: Set[tuple] = set()  # Set of (result_id, method) tuples
+        # Enhanced checkpoint metadata for better tracking and debugging
+        self.checkpoint_metadata: Dict[tuple, Dict[str, Any]] = {}  # Maps (result_id, method) to metadata
     
     async def initialize(self):
         """Initialize the metrics calculator with models."""
@@ -111,10 +114,16 @@ class MetricsCalculator:
                         'temperature': self.config.llm_temperature,
                         'max_tokens': self.config.llm_max_tokens,
                         'top_p': self.config.llm_top_p,
-                        'top_k': self.config.llm_top_k
+                        'top_k': self.config.llm_top_k,
+                        'api_timeout': self.config.llm_api_timeout,
                     }
+                    default_judge_params = default_llm_params.copy()
+                    if self.config.judge_llm_max_tokens is not None:
+                        default_judge_params['max_tokens'] = self.config.judge_llm_max_tokens
+                    if self.config.judge_llm_api_timeout is not None:
+                        default_judge_params['api_timeout'] = self.config.judge_llm_api_timeout
                     self.judge_llm_adapter = LLMAdapterFactory.create_adapter(
-                        self.judge_llm_instance, self.logger.logger, default_params=default_llm_params
+                        self.judge_llm_instance, self.logger.logger, default_params=default_judge_params
                     )
                     self.logger.logger.info(f"Initialized judge LLM for metrics: {judge_model_name}")
                 else:
@@ -134,7 +143,7 @@ class MetricsCalculator:
         # Load checkpoint if resuming
         if resume_from_checkpoint and self.checkpoint_file.exists():
             self._load_checkpoint()
-            self.logger.logger.info(f"Resuming from checkpoint with {len(self.processed_result_ids)} completed tasks")
+            self.logger.logger.info(f"Resuming from checkpoint with {len(self.processed_result_keys)} completed tasks")
         
         # Load benchmark results
         benchmark_results = self._load_benchmark_results(benchmark_results_path)
@@ -152,8 +161,11 @@ class MetricsCalculator:
             for result in result_group['results']:
                 # Skip if already processed (checkpoint resume)
                 result_id = result.get('id', f"result_{len(all_tasks)}")
-                if result_id in self.processed_result_ids:
-                    self.logger.logger.debug(f"Skipping already processed result: {result_id}")
+                method = result['method']
+                result_key = (result_id, method)
+                
+                if result_key in self.processed_result_keys:
+                    self.logger.logger.debug(f"Skipping already processed result: {result_id} ({method})")
                     continue
                 
                 # Get metrics required for this result type from registry
@@ -220,16 +232,30 @@ class MetricsCalculator:
                             self.computed_metrics.append(error_metrics)
                         elif isinstance(result, dict):
                             self.computed_metrics.append(result)
-                            # Track processed result ID for checkpoint
+                            # Track processed (result_id, method) for checkpoint with enhanced metadata
                             result_id = result.get('result_id', f"result_{task_idx}")
-                            self.processed_result_ids.add(result_id)
+                            method = result.get('method', 'unknown')
+                            result_key = (result_id, method)
+                            self.processed_result_keys.add(result_key)
+                            # Store enhanced checkpoint metadata
+                            self.checkpoint_metadata[result_key] = {
+                                'question_type': result.get('question_type', 'unknown'),
+                                'source': result.get('source', 'unknown'),
+                                'question_id': result.get('question_id', result_id),
+                                'timestamp': result.get('timestamp', datetime.now(timezone.utc).isoformat()),
+                                'computation_time': result.get('computation_time', 0.0)
+                            }
                     
                     # Update completed count
                     completed += len(batch_tasks)
                     
                     # Log progress
                     progress_pct = (completed / total_tasks) * 100
-                    self.logger.logger.info(f"Metrics Progress: {completed}/{total_tasks} ({progress_pct:.1f}%)")
+                    unique_results = len(set(m['result_id'] for m in self.computed_metrics))
+                    self.logger.logger.info(
+                        f"Metrics Progress: {completed}/{total_tasks} ({progress_pct:.1f}%) "
+                        f"[{unique_results} unique results, {len(self.computed_metrics)} metric entries]"
+                    )
                     
                     # Save intermediate metrics and checkpoint
                     if completed % batch_size == 0:
@@ -821,39 +847,156 @@ class MetricsCalculator:
         return self.computed_metrics.copy()
 
     def _save_checkpoint(self):
-        """Save checkpoint with progress information."""
+        """Save checkpoint with enhanced granular progress tracking."""
         try:
+            # Derive processed keys from actual computed metrics for accuracy
+            actual_processed_keys = [[m['result_id'], m['method']] for m in self.computed_metrics]
+            
+            # Build enhanced metadata structure for better tracking
+            metadata_list = []
+            for m in self.computed_metrics:
+                result_key = (m['result_id'], m['method'])
+                meta = {
+                    'result_id': m['result_id'],
+                    'method': m['method'],
+                    'question_type': m.get('question_type', 'unknown'),
+                    'source': m.get('source', 'unknown'),
+                    'question_id': m.get('question_id', m['result_id']),
+                    'timestamp': m.get('timestamp', datetime.now(timezone.utc).isoformat()),
+                    'computation_time': m.get('computation_time', 0.0),
+                    'error_message': m.get('error_message', '')
+                }
+                metadata_list.append(meta)
+            
+            # Group by different dimensions for analysis
+            by_question_type = defaultdict(list)
+            by_method = defaultdict(list)
+            by_source = defaultdict(list)
+            
+            for meta in metadata_list:
+                by_question_type[meta['question_type']].append((meta['result_id'], meta['method']))
+                by_method[meta['method']].append((meta['result_id'], meta['question_type']))
+                by_source[meta['source']].append((meta['result_id'], meta['method']))
+            
             checkpoint_data = {
                 'timestamp': datetime.now(timezone.utc).isoformat(),
-                'processed_result_ids': list(self.processed_result_ids),
+                'processed_result_keys': actual_processed_keys,  # List of [result_id, method] pairs
                 'total_computed': len(self.computed_metrics),
-                'cache_usage': self.metrics_cache_usage.copy()
+                'unique_result_ids': len(set(m['result_id'] for m in self.computed_metrics)),
+                'cache_usage': self.metrics_cache_usage.copy(),
+                # Enhanced granular tracking
+                'metadata': metadata_list,
+                'summary_by_question_type': {k: len(v) for k, v in by_question_type.items()},
+                'summary_by_method': {k: len(v) for k, v in by_method.items()},
+                'summary_by_source': {k: len(v) for k, v in by_source.items()},
+                'error_count': len([m for m in metadata_list if m['error_message']])
             }
             with open(self.checkpoint_file, 'w') as f:
                 json.dump(checkpoint_data, f, indent=2)
-            self.logger.logger.debug(f"Checkpoint saved: {len(self.processed_result_ids)} results processed")
+            self.logger.logger.debug(
+                f"Checkpoint saved: {len(actual_processed_keys)} tasks processed "
+                f"({checkpoint_data['unique_result_ids']} unique results, "
+                f"{checkpoint_data['error_count']} errors)"
+            )
         except Exception as e:
             self.logger.logger.warning(f"Failed to save checkpoint: {str(e)}")
     
     def _load_checkpoint(self):
-        """Load checkpoint to resume computation."""
+        """Load checkpoint with enhanced granular tracking to resume computation."""
         try:
             with open(self.checkpoint_file, 'r') as f:
                 checkpoint_data = json.load(f)
             
-            self.processed_result_ids = set(checkpoint_data.get('processed_result_ids', []))
+            # Load processed keys - handle both old format (strings) and new format (tuples)
+            processed_keys_data = checkpoint_data.get('processed_result_keys', 
+                                                     checkpoint_data.get('processed_result_ids', []))
+            
+            # Convert to set of tuples
+            if processed_keys_data and isinstance(processed_keys_data[0], list):
+                # New format: list of [result_id, method] pairs
+                self.processed_result_keys = set(tuple(pair) for pair in processed_keys_data)
+            elif processed_keys_data and isinstance(processed_keys_data[0], str):
+                # Old format: just result_ids - we'll need to derive method from computed metrics
+                self.logger.logger.warning("Old checkpoint format detected, will derive methods from computed metrics")
+                self.processed_result_keys = set()
+            else:
+                self.processed_result_keys = set()
+            
+            # Load enhanced metadata if available
+            if 'metadata' in checkpoint_data:
+                for meta in checkpoint_data['metadata']:
+                    result_key = (meta['result_id'], meta['method'])
+                    self.checkpoint_metadata[result_key] = meta
+                self.logger.logger.info(f"Loaded metadata for {len(self.checkpoint_metadata)} processed tasks")
+            
             self.metrics_cache_usage = checkpoint_data.get('cache_usage', {'hits': 0, 'misses': 0})
             
             # Try to load intermediate metrics if they exist
             intermediate_path = Path(self.config.output_dir) / "metrics_computed.json"
             if intermediate_path.exists():
                 with open(intermediate_path, 'r') as f:
-                    self.computed_metrics = json.load(f)
-                self.logger.logger.info(f"Loaded {len(self.computed_metrics)} computed metrics from checkpoint")
+                    all_metrics = json.load(f)
+                
+                # Deduplicate metrics by (result_id, method), keeping latest timestamp
+                metrics_by_key = defaultdict(list)
+                for metric in all_metrics:
+                    key = (metric['result_id'], metric['method'])
+                    metrics_by_key[key].append(metric)
+                
+                # Keep only the latest entry for each (result_id, method)
+                deduped_metrics = []
+                duplicate_count = 0
+                for key, metrics_list in metrics_by_key.items():
+                    if len(metrics_list) > 1:
+                        duplicate_count += len(metrics_list) - 1
+                        # Sort by timestamp and keep the latest
+                        metrics_list.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+                    deduped_metrics.append(metrics_list[0])
+                
+                self.computed_metrics = deduped_metrics
+                
+                # Update processed_result_keys and metadata from actual computed metrics
+                self.processed_result_keys = set(
+                    (m['result_id'], m['method']) for m in self.computed_metrics
+                )
+                
+                # Rebuild metadata from computed metrics if not loaded from checkpoint
+                if not self.checkpoint_metadata:
+                    for m in self.computed_metrics:
+                        result_key = (m['result_id'], m['method'])
+                        self.checkpoint_metadata[result_key] = {
+                            'question_type': m.get('question_type', 'unknown'),
+                            'source': m.get('source', 'unknown'),
+                            'question_id': m.get('question_id', m['result_id']),
+                            'timestamp': m.get('timestamp', 'unknown'),
+                            'computation_time': m.get('computation_time', 0.0),
+                            'error_message': m.get('error_message', '')
+                        }
+                
+                if duplicate_count > 0:
+                    self.logger.logger.warning(
+                        f"Removed {duplicate_count} duplicate entries during checkpoint load"
+                    )
+                
+                self.logger.logger.info(
+                    f"Loaded {len(self.computed_metrics)} deduplicated computed metrics from checkpoint"
+                )
             
             checkpoint_time = checkpoint_data.get('timestamp', 'unknown')
             self.logger.logger.info(f"Checkpoint loaded from {checkpoint_time}")
-            self.logger.logger.info(f"Resuming with {len(self.processed_result_ids)} completed tasks")
+            
+            # Log enhanced summary information
+            if 'summary_by_question_type' in checkpoint_data:
+                self.logger.logger.info(f"  By question type: {checkpoint_data['summary_by_question_type']}")
+            if 'summary_by_method' in checkpoint_data:
+                self.logger.logger.info(f"  By method: {checkpoint_data['summary_by_method']}")
+            if 'error_count' in checkpoint_data:
+                self.logger.logger.info(f"  Total errors: {checkpoint_data['error_count']}")
+            
+            self.logger.logger.info(
+                f"Resuming with {len(self.processed_result_keys)} completed tasks "
+                f"({len(set(k[0] for k in self.processed_result_keys))} unique results)"
+            )
         except Exception as e:
             self.logger.logger.error(f"Failed to load checkpoint: {str(e)}")
             self.logger.logger.info("Starting fresh computation")
