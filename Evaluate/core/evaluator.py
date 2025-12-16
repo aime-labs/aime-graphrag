@@ -67,6 +67,7 @@ class Evaluator:
         self.llm_instance = None
         self.judge_llm_instance = None
         self.embeddings_instance = None
+        self.reranker = None  # Reranker for context precision
         self.graphrag_config = None
         self.index_files = {}
         self.novel_contexts = {}
@@ -134,6 +135,38 @@ class Evaluator:
                 self.logger.logger.warning(f"Failed to initialize judge LLM, using main LLM: {str(e)}")
                 self.judge_llm_adapter = self.llm_adapter
                 self.judge_llm_instance = self.llm_instance
+        
+        # Initialize reranker for context precision metric
+        try:
+            reranker_config = getattr(self.config, 'reranker', {})
+            if isinstance(reranker_config, dict):
+                reranker_enabled = reranker_config.get('enabled', True)
+                reranker_type = reranker_config.get('type', 'bge')
+                reranker_model = reranker_config.get('model_name', None)
+                reranker_device = reranker_config.get('device', 'cuda')
+                reranker_max_length = reranker_config.get('max_length', 512)
+                
+                if reranker_enabled and reranker_type != 'none':
+                    self.reranker = self.model_manager.get_reranker(
+                        reranker_type=reranker_type,
+                        model_name=reranker_model,
+                        device=reranker_device,
+                        max_length=reranker_max_length
+                    )
+                    if self.reranker:
+                        self.logger.logger.info(
+                            f"Initialized reranker: {reranker_type} "
+                            f"(model: {reranker_model or 'default'}, device: {reranker_device})"
+                        )
+                    else:
+                        self.logger.logger.warning("Reranker initialization returned None")
+                else:
+                    self.logger.logger.info("Reranker disabled in configuration")
+            else:
+                self.logger.logger.debug("No reranker configuration found, context precision will use original ordering")
+        except Exception as e:
+            self.logger.logger.warning(f"Failed to initialize reranker: {e}. Context precision will use original ordering.")
+            self.reranker = None
         
         # Load novel contexts asynchronously
         if self.config.input_json_path:
@@ -583,7 +616,8 @@ class Evaluator:
                             default_metric='ragas_context_precision'
                         )
                         score, details = await self.ragas_metrics.compute_context_precision(
-                            question['question'], contexts, question.get('answer', ''), tracked_adapter
+                            question['question'], contexts, question.get('answer', ''), 
+                            tracked_adapter, reranker=self.reranker
                         )
                         return metric, score
                 
@@ -633,13 +667,35 @@ class Evaluator:
                     return metric, None  # None signals this needs post-computation
                 
                 # Text-based metrics (BERTScore)
-                elif metric == 'bert_score_f1':
+                elif metric == 'bert_score_precision':
                     # BERTScore is CPU/GPU intensive but doesn't require API calls
                     # Run in executor to avoid blocking the event loop
                     import asyncio
                     loop = asyncio.get_event_loop()
                     score = await loop.run_in_executor(
                         None,  # Use default executor
+                        self.text_metrics.compute_bert_score_precision,
+                        answer,
+                        question.get('answer', '')
+                    )
+                    return metric, score
+                
+                elif metric == 'bert_score_recall':
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    score = await loop.run_in_executor(
+                        None,
+                        self.text_metrics.compute_bert_score_recall,
+                        answer,
+                        question.get('answer', '')
+                    )
+                    return metric, score
+                
+                elif metric == 'bert_score_f1':
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    score = await loop.run_in_executor(
+                        None,
                         self.text_metrics.compute_bert_score_f1,
                         answer,
                         question.get('answer', '')

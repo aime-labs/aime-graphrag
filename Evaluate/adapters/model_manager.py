@@ -21,6 +21,14 @@ except ImportError:
     AIME_AVAILABLE = False
     logging.warning("AIME API not available, some features may be limited")
 
+# Import reranker adapter
+try:
+    from adapters.reranker_adapter import create_reranker_adapter, RerankerAdapter
+    RERANKER_AVAILABLE = True
+except ImportError:
+    RERANKER_AVAILABLE = False
+    logging.warning("Reranker adapter not available")
+
 
 class ModelManager:
     """Centralized model management for evaluation framework."""
@@ -464,8 +472,56 @@ class ModelManager:
         validation = {
             'graphrag_available': GRAPHRAG_AVAILABLE,
             'aime_available': AIME_AVAILABLE,
-            'config_loaded': self.config is not None
+            'config_loaded': self.config is not None,
+            'reranker_available': RERANKER_AVAILABLE
         }
         
         self.logger.info(f"Environment validation: {validation}")
-        return validation 
+        return validation
+    
+    def get_reranker(
+        self,
+        reranker_type: str = "bge",
+        model_name: Optional[str] = None,
+        device: str = "cuda",
+        **kwargs
+    ) -> Optional[Any]:
+        """
+        Get a reranker instance for context precision metric.
+        
+        Args:
+            reranker_type: Type of reranker ('bge', 'cross-encoder', 'cohere', 'none')
+            model_name: Specific model name (optional)
+            device: Device for local models ('cuda', 'cpu', 'mps')
+            **kwargs: Additional arguments for the reranker
+            
+        Returns:
+            RerankerAdapter instance or None
+        """
+        if not RERANKER_AVAILABLE:
+            self.logger.warning("Reranker adapter not available, context precision will use default ordering")
+            return None
+        
+        if reranker_type == "none" or reranker_type is None:
+            self.logger.info("No reranker requested")
+            return None
+        
+        try:
+            reranker = create_reranker_adapter(
+                reranker_type=reranker_type,
+                model_name=model_name,
+                device=device,
+                logger=self.logger,
+                **kwargs
+            )
+            
+            if reranker:
+                self.logger.info(f"Created reranker: {reranker_type} ({model_name or 'default'})")
+            else:
+                self.logger.warning(f"Failed to create reranker: {reranker_type}")
+            
+            return reranker
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create reranker: {e}")
+            return None 

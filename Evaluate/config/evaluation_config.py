@@ -62,6 +62,9 @@ class EvaluationConfig:
     enable_judge_logging: bool = True  # Set to False to disable detailed judge interaction logging
     judge_log_file: str = "judge.json"
     
+    # Reranker configuration for context precision metric
+    reranker: Optional[Dict[str, Any]] = None
+    
     # Performance settings
     max_concurrent_tasks: int = 10
     batch_size: int = 2

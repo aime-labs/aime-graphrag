@@ -217,9 +217,67 @@ class TextMetrics:
                     'bert_score_f1': np.nan
                 }
     
+    def compute_bert_score_precision(self, answer: str, ground_truth: str) -> float:
+        """
+        Compute BERTScore precision: how much of the answer is supported by ground truth.
+        
+        Precision measures what fraction of the answer's content is relevant/grounded
+        in the ground truth. High precision means the answer doesn't hallucinate or
+        add unsupported information.
+        
+        Args:
+            answer: The candidate/generated answer text
+            ground_truth: The reference/ground truth text
+            
+        Returns:
+            BERTScore precision (0-100%)
+        """
+        scores = self.compute_bert_score(answer, ground_truth)
+        return scores.get('bert_score_precision', np.nan)
+    
+    def compute_bert_score_recall(self, answer: str, ground_truth: str) -> float:
+        """
+        Compute BERTScore recall: how much of the ground truth is covered by the answer.
+        
+        Recall measures what fraction of the ground truth's information is captured
+        in the answer. High recall means the answer is comprehensive and doesn't
+        miss important information.
+        
+        Args:
+            answer: The candidate/generated answer text
+            ground_truth: The reference/ground truth text
+            
+        Returns:
+            BERTScore recall (0-100%)
+        """
+        scores = self.compute_bert_score(answer, ground_truth)
+        return scores.get('bert_score_recall', np.nan)
+    
     def compute_bert_score_f1(self, answer: str, ground_truth: str) -> float:
         """
+        Compute BERTScore F1: harmonic mean of precision and recall.
+        
+        F1 provides a balanced measure between precision (answer relevance) and
+        recall (ground truth coverage). This is the standard BERTScore metric
+        that balances both aspects equally.
+        
+        Args:
+            answer: The candidate/generated answer text
+            ground_truth: The reference/ground truth text
+            
+        Returns:
+            BERTScore F1 (0-100%)
+        """
+        scores = self.compute_bert_score(answer, ground_truth)
+        return scores.get('bert_score_f1', np.nan)
+    
+    def compute_bert_score_f1_adaptive(self, answer: str, ground_truth: str) -> float:
+        """
         Compute BERTScore with adaptive score selection based on length ratio.
+        
+        DEPRECATED: This adaptive logic can introduce bias when comparing systems
+        with different answer length characteristics (e.g., verbose GraphRAG vs
+        concise Vector Search). Use separate precision, recall, and F1 metrics instead.
         
         When answer length differs significantly from ground truth, F1 score can be 
         misleading. This method adapts the returned score:

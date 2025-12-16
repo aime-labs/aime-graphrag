@@ -16,6 +16,11 @@ scipy>=1.7.0
 spacy>=3.7.0
 spacy-transformers>=1.2.0
 
+# Reranking models for context precision
+sentence-transformers>=2.2.0
+transformers>=4.30.0
+torch>=2.0.0
+
 # Statistical analysis
 statsmodels>=0.14.0
 pingouin>=0.5.0

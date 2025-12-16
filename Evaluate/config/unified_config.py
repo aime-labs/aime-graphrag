@@ -89,6 +89,7 @@ class UnifiedConfiguration(ConfigurationInterface):
             "llm_model": {"$ref": "#/definitions/model_config"},
             "embedding_model": {"$ref": "#/definitions/model_config"},
             "judge_llm_model": {"$ref": "#/definitions/model_config"},
+            "reranker": {"$ref": "#/definitions/reranker_config"},
             "evaluation": {"$ref": "#/definitions/evaluation_settings"},
             "reproducibility": {"$ref": "#/definitions/reproducibility_config"},
             "resources": {"$ref": "#/definitions/resource_config"},
@@ -110,6 +111,16 @@ class UnifiedConfiguration(ConfigurationInterface):
                     "timeout": {"type": ["integer", "null"]}
                 },
                 "required": ["name", "type"]
+            },
+            "reranker_config": {
+                "type": "object",
+                "properties": {
+                    "enabled": {"type": "boolean"},
+                    "type": {"type": "string", "enum": ["bge", "cross-encoder", "cohere", "none"]},
+                    "model_name": {"type": ["string", "null"]},
+                    "device": {"type": "string", "enum": ["cuda", "cpu", "mps"]},
+                    "max_length": {"type": "integer", "minimum": 128}
+                }
             },
             "evaluation_settings": {
                 "type": "object",

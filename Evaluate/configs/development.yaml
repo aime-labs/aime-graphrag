@@ -22,6 +22,14 @@ judge_llm_model:
   type: mistral
   timeout: 30
 
+# Reranker Configuration for Context Precision
+reranker:
+  enabled: true
+  type: bge  # Options: 'bge', 'cross-encoder', 'cohere', 'none'
+  model_name: BAAI/bge-reranker-large  # bge-reranker-large (560M, best quality), bge-reranker-base (278M, balanced)
+  device: cuda  # Options: 'cuda', 'cpu', 'mps'
+  max_length: 512
+
 # Evaluation Settings
 evaluation:
   methods:

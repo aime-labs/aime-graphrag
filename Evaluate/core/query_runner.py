@@ -118,42 +118,71 @@ def extract_context_texts_from_graphrag(context_data: Any, max_text_length: int 
     
     if isinstance(context_data, dict):
         # Handle GraphRAG local_search and basic_search context formats
-        # Priority order: sources (full text), reports, entities
-        # Note: basic_search returns 'Sources' (capital S), local_search returns 'sources' (lowercase)
+        # CRITICAL PRIORITY ORDER for RAGAS evaluation:
+        # 1. text_units (GraphRAG v0.3+ raw source text) - ground truth for factual questions
+        # 2. sources/Sources (fallback for older versions or alternative structures)
+        # 3. relationships (high value for reasoning verification)
+        # 4. entities (contextual background)
+        # 5. reports (high-level summaries - less useful for specific fact retrieval)
+        # 6. claims (extracted assertions)
         
         # Create a case-insensitive lookup helper
         context_keys_lower = {k.lower(): k for k in context_data.keys()}
         
-        # Extract from 'sources' or 'Sources' - these contain the original text units
-        sources_key = context_keys_lower.get('sources')
-        if sources_key:
-            sources = context_data[sources_key]
-            if isinstance(sources, pd.DataFrame) and 'text' in sources.columns:
-                for _, row in sources.iterrows():
-                    text = str(row.get('text', ''))
-                    if text and len(text) > 10:  # Skip very short texts
-                        # Include source_id if available for reference
-                        source_id = row.get('source_id', row.get('id', ''))
-                        if source_id:
-                            contexts.append(f"[Source {source_id}]: {text[:max_text_length]}")
-                        else:
-                            contexts.append(text[:max_text_length])
+        # PRIORITY 1: Extract from 'text_units' (GraphRAG v0.3+ raw source text)
+        # This is the critical fix - text_units contain the actual source text that models
+        # see during generation, so RAGAS should evaluate against this ground truth
+        text_units_key = context_keys_lower.get('text_units')
+        if text_units_key:
+            text_units = context_data[text_units_key]
+            if isinstance(text_units, pd.DataFrame) and not text_units.empty:
+                if 'text' in text_units.columns:
+                    for _, row in text_units.iterrows():
+                        text = str(row.get('text', ''))
+                        if text and len(text) > 10:  # Skip very short texts
+                            # Include source_id for reference if available
+                            source_id = row.get('id', row.get('source_id', ''))
+                            if source_id:
+                                contexts.append(f"[Text Unit {source_id}]: {text[:max_text_length]}")
+                            else:
+                                contexts.append(text[:max_text_length])
         
-        # Extract from 'reports' or 'Reports' - community reports with summaries
-        reports_key = context_keys_lower.get('reports')
-        if reports_key:
-            reports = context_data[reports_key]
-            if isinstance(reports, pd.DataFrame) and 'content' in reports.columns:
-                for _, row in reports.iterrows():
-                    content = str(row.get('content', ''))
-                    if content and len(content) > 10:
-                        title = row.get('title', '')
-                        if title:
-                            contexts.append(f"[Report: {title}]: {content[:max_text_length]}")
-                        else:
-                            contexts.append(content[:max_text_length])
+        # PRIORITY 2: Extract from 'sources' or 'Sources' (fallback - these contain text units)
+        # Note: basic_search returns 'Sources' (capital S), local_search returns 'sources' (lowercase)
+        # Only use if text_units didn't provide content
+        if not any('[Text Unit' in ctx for ctx in contexts):  # Check if we got text_units
+            sources_key = context_keys_lower.get('sources')
+            if sources_key:
+                sources = context_data[sources_key]
+                if isinstance(sources, pd.DataFrame) and 'text' in sources.columns:
+                    for _, row in sources.iterrows():
+                        text = str(row.get('text', ''))
+                        if text and len(text) > 10:  # Skip very short texts
+                            # Include source_id if available for reference
+                            source_id = row.get('source_id', row.get('id', ''))
+                            if source_id:
+                                contexts.append(f"[Source {source_id}]: {text[:max_text_length]}")
+                            else:
+                                contexts.append(text[:max_text_length])
         
-        # Extract from 'entities' or 'Entities' - entity descriptions can provide useful context
+        # PRIORITY 3: Extract from 'relationships' or 'Relationships' - High value for reasoning
+        # Format as "Source -> Target: Description" for clarity
+        relationships_key = context_keys_lower.get('relationships')
+        if relationships_key:
+            relationships = context_data[relationships_key]
+            if isinstance(relationships, pd.DataFrame) and not relationships.empty:
+                if 'description' in relationships.columns:
+                    rel_descriptions = []
+                    for _, row in relationships.iterrows():
+                        desc = str(row.get('description', ''))
+                        source = row.get('source', '')
+                        target = row.get('target', '')
+                        if desc and source and target and len(desc) > 5:
+                            rel_descriptions.append(f"{source} -> {target}: {desc}")
+                    if rel_descriptions:
+                        contexts.append("[Relationships]:\n" + "\n".join(rel_descriptions[:15]))  # Limit
+        
+        # PRIORITY 4: Extract from 'entities' or 'Entities' - entity descriptions
         entities_key = context_keys_lower.get('entities')
         if entities_key:
             entities = context_data[entities_key]
@@ -167,22 +196,22 @@ def extract_context_texts_from_graphrag(context_data: Any, max_text_length: int 
                 if entity_descriptions:
                     contexts.append("[Entities]:\n" + "\n".join(entity_descriptions[:20]))  # Limit to 20 entities
         
-        # Extract from 'relationships' or 'Relationships' - relationship descriptions
-        relationships_key = context_keys_lower.get('relationships')
-        if relationships_key:
-            relationships = context_data[relationships_key]
-            if isinstance(relationships, pd.DataFrame) and 'description' in relationships.columns:
-                rel_descriptions = []
-                for _, row in relationships.iterrows():
-                    desc = str(row.get('description', ''))
-                    source = row.get('source', '')
-                    target = row.get('target', '')
-                    if desc and source and target and len(desc) > 5:
-                        rel_descriptions.append(f"{source} -> {target}: {desc}")
-                if rel_descriptions:
-                    contexts.append("[Relationships]:\n" + "\n".join(rel_descriptions[:15]))  # Limit
+        # PRIORITY 5: Extract from 'reports' or 'Reports' - Contextual, but less useful for fact retrieval
+        # Community reports provide high-level summaries but may lack specific factual details
+        reports_key = context_keys_lower.get('reports')
+        if reports_key:
+            reports = context_data[reports_key]
+            if isinstance(reports, pd.DataFrame) and 'content' in reports.columns:
+                for _, row in reports.iterrows():
+                    content = str(row.get('content', ''))
+                    if content and len(content) > 10:
+                        title = row.get('title', '')
+                        if title:
+                            contexts.append(f"[Report: {title}]: {content[:max_text_length]}")
+                        else:
+                            contexts.append(content[:max_text_length])
         
-        # Extract from 'claims' or 'Claims' if available
+        # PRIORITY 6: Extract from 'claims' or 'Claims' if available
         claims_key = context_keys_lower.get('claims')
         if claims_key:
             claims = context_data[claims_key]

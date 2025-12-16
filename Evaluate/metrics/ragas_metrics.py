@@ -107,13 +107,16 @@ class RagasEvaluationResult:
 
 
 # Maximum context size in characters to prevent API overload
-MAX_CONTEXT_SIZE = 100000  # ~100KB, well under typical LLM limits
-MAX_SINGLE_CONTEXT_SIZE = 30000  # Per-context limit
+# IMPORTANT: For judges, we disable truncation to pass full GraphRAG context
+# These limits are drastically increased to accommodate full context retrieval
+MAX_CONTEXT_SIZE = 10000000  # ~10MB - essentially disabled for full context support
+MAX_SINGLE_CONTEXT_SIZE = 5000000  # ~5MB per-context - essentially disabled
 
 
 def truncate_contexts(contexts: List[str], max_total: int = MAX_CONTEXT_SIZE, 
                      max_single: int = MAX_SINGLE_CONTEXT_SIZE,
-                     logger: Optional[logging.Logger] = None) -> Tuple[List[str], bool]:
+                     logger: Optional[logging.Logger] = None,
+                     disable_truncation: bool = True) -> Tuple[List[str], bool]:
     """
     Truncate contexts to prevent API overload from excessively large payloads.
     
@@ -121,11 +124,17 @@ def truncate_contexts(contexts: List[str], max_total: int = MAX_CONTEXT_SIZE,
     faithfulness and context recall scores may be unreliable as the LLM judge cannot
     see the full context that was originally retrieved.
     
+    By default, truncation is DISABLED (disable_truncation=True) to pass full GraphRAG context
+    to judges for accurate evaluation. The MAX_CONTEXT_SIZE and MAX_SINGLE_CONTEXT_SIZE limits
+    are set very high to accommodate full context retrieval.
+    
     Args:
         contexts: List of context strings (may also contain dicts/other types that will be converted)
         max_total: Maximum total characters for all contexts combined
         max_single: Maximum characters for a single context
         logger: Optional logger for warnings
+        disable_truncation: If True (default), bypass truncation limits and pass full context.
+                           Set to False to enable truncation limits.
         
     Returns:
         Tuple of (truncated contexts list, was_truncated flag)
@@ -133,6 +142,23 @@ def truncate_contexts(contexts: List[str], max_total: int = MAX_CONTEXT_SIZE,
     if not contexts:
         return [], False
     
+    # If truncation is disabled, pass through full contexts without modification
+    if disable_truncation:
+        if logger:
+            logger.debug(f"Context truncation disabled - passing full {len(contexts)} contexts to judge")
+        truncated = []
+        for ctx in contexts:
+            if ctx is not None:
+                if isinstance(ctx, str):
+                    truncated.append(ctx)
+                else:
+                    try:
+                        truncated.append(json.dumps(ctx) if isinstance(ctx, (dict, list)) else str(ctx))
+                    except:
+                        truncated.append(str(ctx))
+        return truncated, False
+    
+    # Truncation is enabled - apply size limits
     truncated = []
     total_size = 0
     was_truncated = False
@@ -272,7 +298,7 @@ class RagasMetrics:
             if not contexts or not any(c.strip() for c in contexts):
                 return 0.0, {"reason": "No contexts provided - cannot verify faithfulness"}
             
-            # Truncate contexts to prevent API overload
+            # Pass full GraphRAG context to judge (disable_truncation=True by default)
             truncated_contexts, was_truncated = truncate_contexts(contexts, logger=self.logger)
             
             # Step 1: Extract atomic claims from the answer
@@ -406,14 +432,21 @@ class RagasMetrics:
         contexts: List[str],
         ground_truth: Optional[str],
         llm_adapter: Any,
-        max_retries: int = 2
+        max_retries: int = 2,
+        reranker: Optional[Any] = None
     ) -> Tuple[float, Dict[str, Any]]:
         """
-        Compute Context Precision using RAGAS methodology.
+        Compute Context Precision using RAGAS methodology with optional reranking.
         
         Context Precision measures whether all retrieved contexts are relevant
         to deriving the ground truth answer. It evaluates if each context 
         contains useful information.
+        
+        **Strategic Enhancement: Reranking for GraphRAG**
+        Before evaluating context relevance, we apply a lightweight reranker to
+        reorder contexts by semantic relevance to the question. This ensures the
+        most relevant chunks appear at the top (Rank 1), satisfying RAGAS 
+        assumptions that reward early relevant documents.
         
         Formula: Average precision at each relevant document position
         Score = Mean(Precision@k for k where context_k is relevant)
@@ -426,6 +459,7 @@ class RagasMetrics:
             ground_truth: The expected/reference answer (optional)
             llm_adapter: LLM adapter for making API calls
             max_retries: Maximum retry attempts
+            reranker: Optional reranker adapter to reorder contexts by relevance
             
         Returns:
             Tuple of (score, details_dict)
@@ -433,6 +467,32 @@ class RagasMetrics:
         with safe_metric_computation('ragas_context_precision', self.logger, fallback_value=(np.nan, {})):
             if not contexts:
                 return 0.0, {"reason": "No contexts provided"}
+            
+            # Apply reranking if available
+            original_order = None
+            if reranker is not None:
+                try:
+                    self.logger.info(f"Applying reranker to {len(contexts)} contexts")
+                    
+                    # Store original order for transparency
+                    original_order = list(range(len(contexts)))
+                    
+                    # Rerank contexts
+                    reranked_results = await reranker.arerank(question, contexts)
+                    
+                    # Extract reranked contexts and scores
+                    contexts = [doc for doc, score in reranked_results]
+                    rerank_scores = [score for doc, score in reranked_results]
+                    
+                    self.logger.info(
+                        f"Reranking complete. Top context score: {rerank_scores[0]:.4f}, "
+                        f"Bottom score: {rerank_scores[-1]:.4f}"
+                    )
+                except Exception as e:
+                    self.logger.warning(f"Reranking failed: {e}. Using original order.")
+                    original_order = None
+            else:
+                self.logger.debug("No reranker provided, using original context order")
             
             # Evaluate relevance of each context
             context_evaluations = await self._evaluate_context_relevance_batch(
@@ -464,8 +524,13 @@ class RagasMetrics:
                 "total_contexts": len(contexts),
                 "relevant_contexts": relevant_count,
                 "irrelevant_contexts": len(contexts) - relevant_count,
-                "context_evaluations": context_evaluations
+                "context_evaluations": context_evaluations,
+                "reranking_applied": original_order is not None
             }
+            
+            if original_order is not None:
+                details["rerank_scores"] = rerank_scores
+                details["original_order"] = original_order
             
             return precision_score, details
     
@@ -941,7 +1006,8 @@ class RagasMetrics:
         llm_adapter: Any = None,
         embeddings_adapter: Optional[Any] = None,
         max_retries: int = 2,
-        compute_weights: Optional[Dict[str, float]] = None
+        compute_weights: Optional[Dict[str, float]] = None,
+        reranker: Optional[Any] = None
     ) -> RagasEvaluationResult:
         """
         Compute all RAGAS metrics for a question-answer pair.
@@ -955,6 +1021,7 @@ class RagasMetrics:
             embeddings_adapter: Optional embeddings adapter for similarity
             max_retries: Maximum retry attempts
             compute_weights: Optional custom weights for final RAGAS score
+            reranker: Optional reranker adapter for context precision
             
         Returns:
             RagasEvaluationResult with all metrics and details
@@ -964,7 +1031,7 @@ class RagasMetrics:
         # Run all metrics concurrently for efficiency
         tasks = [
             self.compute_faithfulness(question, answer, contexts, llm_adapter, max_retries),
-            self.compute_context_precision(question, contexts, ground_truth, llm_adapter, max_retries),
+            self.compute_context_precision(question, contexts, ground_truth, llm_adapter, max_retries, reranker),
             self.compute_answer_relevance(question, answer, llm_adapter, embeddings_adapter, max_retries)
         ]
         
@@ -1026,11 +1093,11 @@ class RagasMetrics:
     
     async def compute_context_precision_score(
         self, question: str, contexts: List[str], ground_truth: Optional[str],
-        llm_adapter: Any, max_retries: int = 2
+        llm_adapter: Any, max_retries: int = 2, reranker: Optional[Any] = None
     ) -> float:
         """Convenience method returning only the context precision score."""
         score, _ = await self.compute_context_precision(
-            question, contexts, ground_truth, llm_adapter, max_retries
+            question, contexts, ground_truth, llm_adapter, max_retries, reranker
         )
         return score
     

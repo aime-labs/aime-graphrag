@@ -124,9 +124,27 @@ class MetricRegistry:
             # =================================================================
             # TEXT-BASED METRICS (BERTScore)
             # =================================================================
+            'bert_score_precision': MetricConfig(
+                name='bert_score_precision',
+                description='BERTScore Precision: How much of answer is supported by ground truth (0-100%)',
+                question_types=[QuestionType.ALL.value],
+                architectures=[Architecture.ALL.value],
+                required=True,
+                fallback_value=0.0,
+                category='text'
+            ),
+            'bert_score_recall': MetricConfig(
+                name='bert_score_recall',
+                description='BERTScore Recall: How much of ground truth is covered by answer (0-100%)',
+                question_types=[QuestionType.ALL.value],
+                architectures=[Architecture.ALL.value],
+                required=True,
+                fallback_value=0.0,
+                category='text'
+            ),
             'bert_score_f1': MetricConfig(
                 name='bert_score_f1',
-                description='BERTScore F1: Semantic similarity using BERT embeddings (0-100%)',
+                description='BERTScore F1: Harmonic mean of precision and recall (0-100%)',
                 question_types=[QuestionType.ALL.value],
                 architectures=[Architecture.ALL.value],
                 required=True,

@@ -108,7 +108,7 @@ class AimeAPIProvider(ChatModel, EmbeddingModel):
                     api_server=api_url_clean,
                     endpoint_name=self.model_name,
                     user=self.email,
-                    api_key=self.api_key,
+                    key=self.api_key,
                 )
             else:
                 self.model_api = ModelAPI(
@@ -234,7 +234,7 @@ class AimeAPIProvider(ChatModel, EmbeddingModel):
                 self.model_api.session = aiohttp.ClientSession()
             self._session_token = await self.model_api.do_api_login_async(
                 user=self.email,
-                api_key=self.api_key,
+                api_key=self.api_key
             )
             self.model_api.client_session_auth_key = self._session_token
 
@@ -394,16 +394,31 @@ class AimeAPIProvider(ChatModel, EmbeddingModel):
                                 text = ""
                             else:
                                 text = result_data.get("text", "")
-                                # Check if text is empty and try alternative fields
+                                # Check if text is empty and try alternative fields with type validation
                                 if not text:
-                                    # Try alternative field names that might contain the response
-                                    text = (
-                                        result_data.get("output", "") or
-                                        result_data.get("response", "") or
-                                        result_data.get("content", "") or
-                                        str(result_data.get("result", ""))
-                                    )
-                                    log.debug(f"Text was empty, tried alternatives. Found: {text[:40] if text else 'None'}")
+                                    # Log result_data structure for debugging
+                                    log.debug(f"AIME result_data keys: {list(result_data.keys()) if isinstance(result_data, dict) else 'not a dict'}")
+                                    
+                                    # Try alternative field names with explicit type checking
+                                    for field_name in ["output", "response", "content", "result"]:
+                                        field_value = result_data.get(field_name, "")
+                                        
+                                        # Validate field is string type
+                                        if isinstance(field_value, str) and field_value.strip():
+                                            text = field_value
+                                            log.debug(f"Extracted text from '{field_name}' field: {text[:40]}")
+                                            break
+                                        elif isinstance(field_value, list):
+                                            log.error(f"Field '{field_name}' contains list (likely token IDs), cannot use: {field_value[:10] if len(field_value) > 10 else field_value}")
+                                            continue
+                                        elif field_value:  # Other non-string type (int, float, etc.)
+                                            try:
+                                                text = str(field_value)
+                                                log.debug(f"Converted '{field_name}' from {type(field_value).__name__} to string")
+                                                break
+                                            except Exception as e:
+                                                log.warning(f"Failed to convert '{field_name}' to string: {e}")
+                                                continue
                                 
                             # If still no text, try to extract from nested structures
                             if not text and result_data:
@@ -458,13 +473,8 @@ class AimeAPIProvider(ChatModel, EmbeddingModel):
                                 metrics = {}
                                 break
             
-            # Execute with 3-minute timeout
-            try:
-                await asyncio.wait_for(process_api_response(), timeout=180)
-            except asyncio.TimeoutError:
-                log.error("AIME API timeout: No response within 180 seconds")
-                # Use fallback response
-                text = ""
+            # Execute API response processing without timeout
+            await process_api_response()
 
         if not text:
             log.warning("No response text received from AIME API, using fallback")
